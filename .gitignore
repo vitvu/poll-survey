@@ -1,2 +1,53 @@
-# Visual Studio
+# Visual Studio IDE
 .vs/
+.vscode/
+*.sln.DotSettings.user
+
+# User-specific files
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.user
+*.userprefs
+
+# Build results
+bin/
+obj/
+*.exe
+*.dll
+*.pdb
+*.aps
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+.packages/
+NugetPackages/
+nuget.config
+
+# Rider
+.idea/
+*.sln.iml
+riderModule.iml
+/.idea/
+
+# Test Results
+TestResults/
+*.trx
+*.coverage
+
+# Local environment
+.env
+.env.local
+appsettings.Local.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/

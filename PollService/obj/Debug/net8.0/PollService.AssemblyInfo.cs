@@ -15,7 +15,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("PollService")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+1c36cc8ed41e0241b083997a1683cc06adc27b21")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+1c81cef50308dfe9f27a5dfde8e6e519fef085bf")]
 [assembly: System.Reflection.AssemblyProductAttribute("PollService")]
 [assembly: System.Reflection.AssemblyTitleAttribute("PollService")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
