@@ -1,15 +1,22 @@
+using Microsoft.EntityFrameworkCore;
+using PollService.Data;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
+// Đăng ký dịch vụ PollDbContext kết nối tới SQL Server dựa trên Connection String trong appsettings.json
+builder.Services.AddDbContext<PollDbContext>(options =>
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
+// Đăng ký bộ xử lý Controller API
 builder.Services.AddControllers();
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
+
+// Đăng ký dịch vụ Swagger để tạo giao diện kiểm thử API tự động
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// Cấu hình Middleware Swagger hiển thị trong môi trường Development
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -17,9 +24,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-
 app.UseAuthorization();
-
 app.MapControllers();
 
 app.Run();
