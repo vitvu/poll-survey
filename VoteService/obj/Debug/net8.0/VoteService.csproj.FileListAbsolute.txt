@@ -277,3 +277,4 @@ C:\Users\Viet\Documents\GitHub\poll-survey\VoteService\obj\Debug\net8.0\refint\V
 C:\Users\Viet\Documents\GitHub\poll-survey\VoteService\obj\Debug\net8.0\VoteService.pdb
 C:\Users\Viet\Documents\GitHub\poll-survey\VoteService\obj\Debug\net8.0\VoteService.genruntimeconfig.cache
 C:\Users\Viet\Documents\GitHub\poll-survey\VoteService\obj\Debug\net8.0\ref\VoteService.dll
+C:\Users\Viet\Documents\GitHub\poll-survey\VoteService\obj\Debug\net8.0\staticwebassets.upToDateCheck.txt

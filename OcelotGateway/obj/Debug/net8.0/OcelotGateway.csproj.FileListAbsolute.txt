@@ -80,3 +80,4 @@ C:\Users\Viet\Documents\GitHub\poll-survey\OcelotGateway\obj\Debug\net8.0\Ocelot
 C:\Users\Viet\Documents\GitHub\poll-survey\OcelotGateway\obj\Debug\net8.0\OcelotGateway.genruntimeconfig.cache
 C:\Users\Viet\Documents\GitHub\poll-survey\OcelotGateway\obj\Debug\net8.0\ref\OcelotGateway.dll
 C:\Users\Viet\Documents\GitHub\poll-survey\OcelotGateway\bin\Debug\net8.0\ocelot.json
+C:\Users\Viet\Documents\GitHub\poll-survey\OcelotGateway\obj\Debug\net8.0\staticwebassets.upToDateCheck.txt

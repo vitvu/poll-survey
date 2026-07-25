@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using System.Text;
 using System.Text.Json;
 using VoteService.Data;
+using VoteService.Hubs;
 using VoteService.Models;
 
 namespace VoteService.Controllers
@@ -12,119 +14,102 @@ namespace VoteService.Controllers
     public class VotesController : ControllerBase
     {
         private readonly VoteDbContext _context;
-        private readonly IHttpClientFactory _httpClientFactory;
-        private readonly IConfiguration _configuration;
+        private readonly IHttpClientFactory _http;
+        private readonly IConfiguration _config;
+        private readonly IHubContext<VoteHub> _hub;
 
-        // Constructor tiêm phụ thuộc VoteDbContext, HttpClientFactory và Configuration
-        public VotesController(VoteDbContext context, IHttpClientFactory httpClientFactory, IConfiguration configuration)
+        public VotesController(VoteDbContext context, IHttpClientFactory http,
+            IConfiguration config, IHubContext<VoteHub> hub)
         {
-            _context = context;
-            _httpClientFactory = httpClientFactory;
-            _configuration = configuration;
+            _context = context; _http = http; _config = config; _hub = hub;
         }
 
-        // 1. POST: api/Votes -> Thực hiện lượt bình chọn
+        // POST /api/votes
         [HttpPost]
-        public async Task<IActionResult> CreateVote([FromBody] Vote vote)
+        public async Task<IActionResult> Submit([FromBody] Vote vote)
         {
-            // Kiểm tra thông tin gửi lên không được rỗng
-            if (string.IsNullOrWhiteSpace(vote.PollCode))
-            {
-                return BadRequest(new { message = "Mã cuộc bình chọn (PollCode) không được rỗng." });
-            }
+            if (string.IsNullOrWhiteSpace(vote.PollCode) || string.IsNullOrWhiteSpace(vote.VoterToken))
+                return BadRequest(new { message = "Thiếu dữ liệu." });
 
-            if (string.IsNullOrWhiteSpace(vote.VoterToken))
-            {
-                return BadRequest(new { message = "Mã nhận diện (VoterToken) không được rỗng." });
-            }
+            // Mỗi voter chỉ vote 1 lần
+            if (await _context.Votes.AnyAsync(v => v.PollCode == vote.PollCode && v.VoterToken == vote.VoterToken))
+                return BadRequest(new { message = "Bạn đã bình chọn rồi." });
 
-            // Kiểm tra nguyên tắc: Mỗi VoterToken chỉ được vote 1 lần trên cùng 1 PollCode
-            bool alreadyVoted = await _context.Votes.AnyAsync(v => v.PollCode == vote.PollCode && v.VoterToken == vote.VoterToken);
-            if (alreadyVoted)
-            {
-                return BadRequest(new { message = "Bạn đã thực hiện bình chọn cho câu hỏi này trước đó rồi." });
-            }
+            // Kiểm tra poll còn active không
+            var client  = _http.CreateClient();
+            var pollUrl = _config["Services:PollServiceUrl"] ?? "http://localhost:5248";
+            var check   = await client.GetAsync($"{pollUrl}/api/Polls/check/{vote.PollCode}");
+            if (!check.IsSuccessStatusCode)
+                return BadRequest(new { message = "Poll không hợp lệ hoặc đã đóng." });
 
-            // Khởi tạo đối tượng HttpClient để giao tiếp giữa các service
-            var client = _httpClientFactory.CreateClient();
-            string pollServiceUrl = _configuration["Services:PollServiceUrl"] ?? "http://localhost:5248";
-            string analyticsServiceUrl = _configuration["Services:AnalyticsServiceUrl"] ?? "http://localhost:5125";
-
-            // Bước A: Gọi HTTP GET sang PollService để xác thực Poll (Có tồn tại? Còn hoạt động? Chưa hết hạn?)
-            var pollResponse = await client.GetAsync($"{pollServiceUrl}/api/Polls/check/{vote.PollCode}");
-            if (!pollResponse.IsSuccessStatusCode)
-            {
-                var errorDetail = await pollResponse.Content.ReadAsStringAsync();
-                return BadRequest(new { message = "Poll không tồn tại, đã bị đóng hoặc hết hạn bình chọn.", detail = errorDetail });
-            }
-
-            // Bước B: Nếu có chọn OptionId (Lớn hơn 0), gọi PollService để kiểm tra Option có hợp lệ không
-            if (vote.OptionId > 0)
-            {
-                var optionResponse = await client.GetAsync($"{pollServiceUrl}/api/Polls/check-option/{vote.OptionId}");
-                if (!optionResponse.IsSuccessStatusCode)
-                {
-                    return BadRequest(new { message = "Phương án lựa chọn (OptionId) không tồn tại." });
-                }
-            }
-
-            // Bước C: Nếu thông tin hợp lệ -> Lưu lượt bình chọn vào cơ sở dữ liệu VoteDB
             vote.CreatedAt = DateTime.Now;
             _context.Votes.Add(vote);
             await _context.SaveChangesAsync();
 
-            // Bước D: Sau khi lưu thành công, gửi dữ liệu sang AnalyticsService để cập nhật báo cáo
-            try
+            // Tính kết quả mới rồi broadcast qua SignalR
+            var results = await _context.Votes
+                .Where(v => v.PollCode == vote.PollCode)
+                .GroupBy(v => v.OptionId)
+                .Select(g => new { optionId = g.Key, count = g.Count() })
+                .ToListAsync();
+
+            var total = results.Sum(r => r.count);
+
+            await _hub.Clients.Group($"poll_{vote.PollCode}").SendAsync("VoteUpdated", new
             {
-                var analyticsPayload = new
-                {
-                    PollCode = vote.PollCode,
-                    OptionId = vote.OptionId,
-                    VoteTime = vote.CreatedAt
-                };
+                pollCode = vote.PollCode,
+                total,
+                results
+            });
 
-                // Đóng gói JSON
-                var jsonContent = new StringContent(
-                    JsonSerializer.Serialize(analyticsPayload),
-                    Encoding.UTF8,
-                    "application/json"
-                );
+            // Gửi sang AnalyticsService (fire & forget)
+            _ = NotifyAnalytics(client, vote);
 
-                // Gửi HTTP POST bất đồng bộ tới AnalyticsService
-                await client.PostAsync($"{analyticsServiceUrl}/api/Analytics", jsonContent);
-            }
-            catch
-            {
-                // Bỏ qua lỗi nếu AnalyticsService tạm thời không khả dụng, không làm ảnh hưởng kết quả vote của user
-            }
-
-            return Ok(new { message = "Bình chọn thành công!", vote });
+            return Ok(new { message = "Bình chọn thành công!" });
         }
 
-        // 2. GET: api/Votes/result/abc123 -> Lấy kết quả đếm vote theo từng Option của một Poll
+        // GET /api/votes/result/{pollCode}
         [HttpGet("result/{pollCode}")]
         public async Task<IActionResult> GetResult(string pollCode)
         {
-            // Gom nhóm theo OptionId và đếm số lượng vote của từng Option
             var results = await _context.Votes
                 .Where(v => v.PollCode == pollCode)
                 .GroupBy(v => v.OptionId)
-                .Select(g => new
-                {
-                    OptionId = g.Key,
-                    Count = g.Count()
-                })
+                .Select(g => new { optionId = g.Key, count = g.Count() })
                 .ToListAsync();
-
             return Ok(results);
         }
 
-        // 3. GET: api/Votes/total/abc123 -> Tính tổng số lượt vote của một Poll
+        // GET /api/votes/total/{pollCode}
         [HttpGet("total/{pollCode}")]
-        public async Task<IActionResult> GetTotalVote(string pollCode)
+        public async Task<IActionResult> GetTotal(string pollCode)
         {
-            int total = await _context.Votes.CountAsync(v => v.PollCode == pollCode);
-            return Ok(new { PollCode = pollCode, TotalVotes = total });
+            var total = await _context.Votes.CountAsync(v => v.PollCode == pollCode);
+            return Ok(new { pollCode, totalVotes = total });
+        }
+
+        // GET /api/votes/list/{pollCode} — để lấy open-text / rating values
+        [HttpGet("list/{pollCode}")]
+        public async Task<IActionResult> GetList(string pollCode)
+        {
+            var list = await _context.Votes
+                .Where(v => v.PollCode == pollCode)
+                .OrderByDescending(v => v.CreatedAt)
+                .Select(v => new { v.OptionId, v.VoteValue, v.CreatedAt })
+                .ToListAsync();
+            return Ok(list);
+        }
+
+        private async Task NotifyAnalytics(HttpClient client, Vote vote)
+        {
+            try
+            {
+                var url     = _config["Services:AnalyticsServiceUrl"] ?? "http://localhost:5125";
+                var payload = JsonSerializer.Serialize(new { vote.PollCode, vote.OptionId, VoteTime = vote.CreatedAt });
+                await client.PostAsync($"{url}/api/Analytics",
+                    new StringContent(payload, Encoding.UTF8, "application/json"));
+            }
+            catch { /* silent */ }
         }
     }
 }
