@@ -9,10 +9,10 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
     {
-        policy.WithOrigins("http://localhost:5173", "http://localhost:3000") // Frontend URLs
+        policy.WithOrigins("https://localhost:5173")
               .AllowAnyHeader()
               .AllowAnyMethod()
-              .AllowCredentials(); // SignalR yêu cầu credentials
+              .AllowCredentials();
     });
 });
 
@@ -40,7 +40,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// Bỏ app.UseHttpsRedirection() tránh lỗi 307 Temporary Redirect trên Local Microservices
+app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();
 

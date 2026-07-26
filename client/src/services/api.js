@@ -1,51 +1,34 @@
 import axios from 'axios';
 
-// Ocelot Gateway Base URL
-const API_BASE_URL = 'http://localhost:5019';
-
 const apiClient = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  baseURL: 'https://localhost:5000', // Ocelot Gateway
+  headers: { 'Content-Type': 'application/json' },
   timeout: 10000,
 });
 
-// Response interceptor for error handling
 apiClient.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    let errorMessage = 'Đã xảy ra lỗi khi kết nối với máy chủ Ocelot Gateway.';
-    if (error.response && error.response.data && error.response.data.message) {
-      errorMessage = error.response.data.message;
-    } else if (error.message) {
-      errorMessage = error.message;
-    }
-    return Promise.reject(new Error(errorMessage));
+  res => res,
+  err => {
+    const msg = err.response?.data?.message || err.message || 'Lỗi kết nối server.';
+    return Promise.reject(new Error(msg));
   }
 );
 
 export const pollApi = {
-  // 1. PollService APIs via Gateway
-  getPolls: () => apiClient.get('/api/polls'),
-  getPollById: (id) => apiClient.get(`/api/polls/${id}`),
-  getPollByCode: (code) => apiClient.get(`/api/polls/code/${code}`),
-  checkPoll: (code) => apiClient.get(`/api/polls/check/${code}`),
-  checkOption: (optionId) => apiClient.get(`/api/polls/check-option/${optionId}`),
-  createPoll: (pollData) => apiClient.post('/api/polls', pollData),
-  updatePoll: (id, pollData) => apiClient.put(`/api/polls/${id}`, pollData),
-  deletePoll: (id) => apiClient.delete(`/api/polls/${id}`),
-  verifyCreator: (verifyData) => apiClient.post('/api/polls/verify-creator', verifyData),
+  // PollService
+  getPollByCode: (code)         => apiClient.get(`/api/polls/code/${code}`),
+  checkPoll:     (code)         => apiClient.get(`/api/polls/check/${code}`),
+  createPoll:    (data)         => apiClient.post('/api/polls', data),
+  updatePoll:    (id, data)     => apiClient.put(`/api/polls/${id}`, data),
 
-  // 2. VoteService APIs via Gateway
-  submitVote:     (voteData)  => apiClient.post('/api/votes', voteData),
-  getVoteResults: (pollCode)  => apiClient.get(`/api/votes/result/${pollCode}`),
-  getVoteTotal:   (pollCode)  => apiClient.get(`/api/votes/total/${pollCode}`),
-  getVoteList:    (pollCode)  => apiClient.get(`/api/votes/list/${pollCode}`),
-  getVoteByValue: (pollCode)  => apiClient.get(`/api/votes/byvalue/${pollCode}`),
+  // VoteService
+  submitVote:     (data)        => apiClient.post('/api/votes', data),
+  getVoteResults: (code)        => apiClient.get(`/api/votes/result/${code}`),
+  getVoteTotal:   (code)        => apiClient.get(`/api/votes/total/${code}`),
+  getVoteList:    (code)        => apiClient.get(`/api/votes/list/${code}`),
 
-  // 3. AnalyticsService APIs via Gateway
-  getAnalyticsSummary: (pollCode) => apiClient.get(`/api/analytics/summary/${pollCode}`),
+  // AnalyticsService
+  getAnalyticsSummary: (code)   => apiClient.get(`/api/analytics/summary/${code}`),
 };
 
 export default apiClient;

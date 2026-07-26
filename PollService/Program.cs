@@ -8,7 +8,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
     {
-        policy.AllowAnyOrigin()
+        policy.WithOrigins("https://localhost:5173")
               .AllowAnyHeader()
               .AllowAnyMethod();
     });
@@ -36,7 +36,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// Bỏ app.UseHttpsRedirection() để tránh lỗi 307 Temporary Redirect trên môi trường Local HTTP Microservices
+app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();
 

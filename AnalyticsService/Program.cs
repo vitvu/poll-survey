@@ -8,7 +8,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
     {
-        policy.AllowAnyOrigin()
+        policy.WithOrigins("https://localhost:5173")
               .AllowAnyHeader()
               .AllowAnyMethod();
     });
@@ -32,7 +32,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// Bỏ app.UseHttpsRedirection() tránh lỗi 307 Redirect trên Local Microservices
+app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();
 

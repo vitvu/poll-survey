@@ -10,8 +10,7 @@
 import { ref, onUnmounted } from 'vue';
 import * as signalR from '@microsoft/signalr';
 
-// Port mặc định của VoteService — đổi nếu khác
-const VOTE_SERVICE_URL = 'http://localhost:5237';
+const VOTE_SERVICE_URL = 'https://localhost:5002';
 
 export function usePollHub(pollCode, onVoteUpdated) {
   const connected  = ref(false);
