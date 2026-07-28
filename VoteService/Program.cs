@@ -4,22 +4,28 @@ using VoteService.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Cấu hình CORS cho cả HTTP API và SignalR WebSocket
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
     {
-        policy.WithOrigins("https://localhost:5173", "http://localhost:5173")
+        policy.WithOrigins("https://localhost:5173")
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials();
     });
 });
 
+// Đăng ký dịch vụ VoteDbContext với SQL Server (VoteDB)
 builder.Services.AddDbContext<VoteDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
+// Đăng ký HttpClient factory để gọi các API liên dịch vụ (PollService & AnalyticsService)
 builder.Services.AddHttpClient();
+
+// Đăng ký SignalR cho real-time updates
 builder.Services.AddSignalR();
+
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -38,6 +44,7 @@ app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();
 
+// Map SignalR Hub endpoint cho real-time vote updates
 app.MapHub<VoteHub>("/hubs/vote");
 
 app.Run();

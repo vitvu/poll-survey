@@ -12,7 +12,7 @@
     },
     {
       "UpstreamPathTemplate": "/api/polls",
-      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
+      "UpstreamHttpMethod": [ "GET", "POST" ],
       "DownstreamPathTemplate": "/api/Polls",
       "DownstreamScheme": "https",
       "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5001 } ]
