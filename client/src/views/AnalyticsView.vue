@@ -4,7 +4,6 @@
       <ChevronLeft :size="15" /> Trang chủ
     </button>
 
-    <!-- Denied -->
     <div v-if="denied" class="card text-center" style="max-width:420px;margin:0 auto;">
       <Lock :size="32" color="var(--red)" style="margin-bottom:12px;" />
       <h2 style="font-size:17px;font-weight:800;margin-bottom:6px;">Không có quyền truy cập</h2>
@@ -12,15 +11,12 @@
       <router-link to="/" class="btn btn-ghost">Về trang chủ</router-link>
     </div>
 
-    <!-- Loading -->
     <div v-else-if="loading" class="text-center" style="padding:80px 0;">
       <div class="spinner spinner-blue" style="width:28px;height:28px;margin:0 auto 10px;"></div>
       <p class="fs-sm text-3">Đang tải...</p>
     </div>
 
     <template v-else-if="poll">
-
-      <!-- Header -->
       <div class="card mb-3">
         <div class="d-flex align-center gap-2 mb-2 flex-wrap">
           <span class="badge badge-blue">{{ poll.code }}</span>
@@ -43,16 +39,17 @@
           <button v-if="!isClosed" class="btn-close-poll" @click="showConfirm = true">
             <StopCircle :size="14" /> Dừng bình chọn
           </button>
-          <span v-else class="badge badge-red" style="padding:7px 12px;">Đã đóng</span>
+          <button v-if="isClosed" class="btn-delete-poll" @click="showDeleteConfirm = true">
+            <Trash2 :size="14" /> Xoá phòng
+          </button>
+          <span v-if="isClosed && false" class="badge badge-red" style="padding:7px 12px;">Đã đóng</span>
         </div>
 
-        <!-- SignalR status -->
         <div class="sr-pill" :class="hubConnected ? 'sr-ok' : 'sr-off'">
           <span class="live-dot"></span>
-          {{ hubConnected ? 'SignalR kết nối — cập nhật tức thì' : 'Đang kết nối...' }}
+          {{ hubConnected ? 'SignalR kết nối' : 'Đang kết nối SignalR...' }}
         </div>
 
-        <!-- Share link -->
         <div class="d-flex gap-2 mt-3">
           <input class="form-control fs-sm" :value="shareLink" readonly style="background:var(--surface-2);" />
           <button class="btn btn-light" style="flex-shrink:0;" @click="copyLink"><Copy :size="13" /></button>
@@ -64,7 +61,6 @@
         </div>
       </div>
 
-      <!-- Stats -->
       <div class="stat-grid mb-3">
         <div class="stat-card">
           <div class="stat-icon-box"><Users :size="16" /></div>
@@ -78,14 +74,12 @@
         </div>
       </div>
 
-      <!-- Results -->
       <div class="card mb-3">
         <div class="section-title">
           <BarChart2 :size="14" /> Kết quả
           <span class="live-badge ms-auto"><span class="live-dot"></span>Live</span>
         </div>
 
-        <!-- Multiple Choice / Yes-No: bar chart -->
         <template v-if="['Multiple Choice', 'Yes / No'].includes(poll.questionType)">
           <div v-if="!totalVotes" class="empty-state">
             <p class="fs-sm">Chưa có lượt bình chọn.</p>
@@ -106,11 +100,9 @@
           </div>
         </template>
 
-        <!-- Rating: điểm trung bình + breakdown từng mức sao -->
         <template v-else-if="poll.questionType === 'Rating'">
           <div v-if="!totalVotes" class="empty-state"><p class="fs-sm">Chưa có lượt đánh giá.</p></div>
           <div v-else>
-            <!-- Tóm tắt trên -->
             <div class="rating-header mb-3">
               <div class="avg-score">{{ avgRating }}</div>
               <div>
@@ -122,8 +114,6 @@
                 <p class="fs-xs text-3">{{ totalVotes }} lượt đánh giá</p>
               </div>
             </div>
-
-            <!-- Breakdown từng mức sao — frontend tự tính từ raw data -->
             <div class="bar-list">
               <div v-for="s in [5,4,3,2,1]" :key="s" class="bar-row">
                 <div class="bar-meta">
@@ -146,7 +136,6 @@
           </div>
         </template>
 
-        <!-- Open Text: danh sách phản hồi -->
         <template v-else-if="poll.questionType === 'Open Text'">
           <p class="fs-sm fw-600 mb-2">{{ textList.length }} phản hồi</p>
           <div v-if="!textList.length" class="empty-state"><p class="fs-sm">Chưa có phản hồi.</p></div>
@@ -156,7 +145,7 @@
 
     </template>
 
-    <!-- Confirm modal -->
+    <!-- Modal dừng bình chọn -->
     <div v-if="showConfirm" class="modal-bg" @click.self="showConfirm=false">
       <div class="modal-box">
         <StopCircle :size="28" color="var(--red)" style="margin-bottom:12px;" />
@@ -168,31 +157,53 @@
         </div>
       </div>
     </div>
+
+    <!-- Modal xoá phòng -->
+    <div v-if="showDeleteConfirm" class="modal-bg" @click.self="showDeleteConfirm=false">
+      <div class="modal-box">
+        <Trash2 :size="28" color="var(--red)" style="margin-bottom:12px;" />
+        <h3 style="font-size:17px;font-weight:800;margin-bottom:8px;">Xoá phòng bình chọn?</h3>
+        <p class="fs-sm text-3 mb-3">Toàn bộ dữ liệu phòng <strong>{{ poll?.code }}</strong> sẽ bị xoá vĩnh viễn và không thể khôi phục.</p>
+        <div class="d-flex gap-2 justify-center">
+          <button class="btn btn-ghost" @click="showDeleteConfirm=false">Hủy</button>
+          <button class="btn-delete-poll" :disabled="deleting" @click="deletePoll">
+            <span v-if="deleting" class="spinner"></span>
+            <Trash2 v-else :size="14" />
+            {{ deleting ? 'Đang xoá...' : 'Xoá vĩnh viễn' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { pollApi } from '../services/api';
 import { useToastStore } from '../stores/toastStore';
 import { usePollHub } from '../composables/usePollHub';
-import { ChevronLeft, Lock, Copy, ExternalLink, StopCircle, Calendar, Clock, Users, Trophy, Star, BarChart2 } from 'lucide-vue-next';
+import {
+  ChevronLeft, Lock, Copy, ExternalLink, StopCircle, Trash2,
+  Calendar, Clock, Users, Trophy, Star, BarChart2,
+} from 'lucide-vue-next';
 
 const route  = useRoute();
 const router = useRouter();
 const toast  = useToastStore();
 const code   = route.query.code;
 
-const loading       = ref(false);
-const denied        = ref(false);
-const deniedCode    = ref('');
-const poll          = ref(null);
-const totalVotes    = ref(0);
-const choiceResults = ref([]);
-const textList      = ref([]);
-const ratingVotes   = ref([]);
-const showConfirm   = ref(false);
+const loading           = ref(false);
+const denied            = ref(false);
+const deniedCode        = ref('');
+const poll              = ref(null);
+const totalVotes        = ref(0);
+const choiceResults     = ref([]);
+const textList          = ref([]);
+const ratingVotes       = ref([]);
+const showConfirm       = ref(false);
+const showDeleteConfirm = ref(false);
+const deleting          = ref(false);
 
 const isClosed  = computed(() => !poll.value || poll.value.status !== 'Active' || new Date(poll.value.expireAt) <= new Date());
 const shareLink = computed(() => `${location.origin}/vote/${poll.value?.code}`);
@@ -203,7 +214,6 @@ const avgRating = computed(() => {
   return nums.length ? (nums.reduce((a, b) => a + b, 0) / nums.length).toFixed(1) : '0.0';
 });
 
-// Đếm mỗi mức sao có bao nhiêu người chọn
 const ratingBreakdown = computed(() => {
   const counts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
   ratingVotes.value.forEach(v => {
@@ -223,15 +233,12 @@ const expireText = computed(() => {
     : d.toLocaleString('vi-VN', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
 });
 
-// SignalR: nhận vote mới, cập nhật kết quả ngay
 const { connected: hubConnected, start: hubStart } = usePollHub(code, async (data) => {
   totalVotes.value = data.total;
 
   if (poll.value && ['Multiple Choice', 'Yes / No'].includes(poll.value.questionType)) {
-    // data.results đã có từ server, frontend tự build bars
     buildBars(data.results, data.total);
   } else if (poll.value?.questionType === 'Rating') {
-    // Lấy raw list rồi tự tính
     const res = await pollApi.getVoteList(code);
     ratingVotes.value = res.data;
   } else if (poll.value?.questionType === 'Open Text') {
@@ -239,8 +246,6 @@ const { connected: hubConnected, start: hubStart } = usePollHub(code, async (dat
     textList.value = res.data.map(v => v.voteValue).filter(Boolean);
   }
 });
-
-let fallback = null;
 
 onMounted(async () => {
   if (!code) return;
@@ -258,12 +263,12 @@ onMounted(async () => {
 
     await loadResults();
     hubStart();
-    fallback = setInterval(() => { if (!hubConnected.value) loadResults(); }, 6000);
-  } catch { toast.error('Không thể tải dữ liệu.'); }
-  finally  { loading.value = false; }
+  } catch {
+    toast.error('Không thể tải dữ liệu.');
+  } finally {
+    loading.value = false;
+  }
 });
-
-onUnmounted(() => clearInterval(fallback));
 
 const buildBars = (results, total) => {
   const counts = Object.fromEntries(results.map(r => [r.optionId, r.count]));
@@ -284,7 +289,7 @@ const loadResults = async () => {
     buildBars(res.data.map(r => ({ optionId: r.optionId, count: r.count })), totalVotes.value);
   } else {
     const res = await pollApi.getVoteList(code);
-    if (type === 'Rating')      ratingVotes.value = res.data;
+    if (type === 'Rating')        ratingVotes.value = res.data;
     else if (type === 'Open Text') textList.value = res.data.map(v => v.voteValue).filter(Boolean);
   }
 };
@@ -295,7 +300,25 @@ const closePoll = async () => {
     await pollApi.updatePoll(poll.value.id, { ...poll.value, status: 'Closed' });
     poll.value.status = 'Closed';
     toast.success('Đã dừng bình chọn.');
-  } catch { toast.error('Không thể đóng phòng.'); }
+  } catch {
+    toast.error('Không thể đóng phòng.');
+  }
+};
+
+const deletePoll = async () => {
+  deleting.value = true;
+  try {
+    await pollApi.deletePoll(poll.value.id);
+    const saved = JSON.parse(localStorage.getItem('createdPolls') || '[]');
+    localStorage.setItem('createdPolls', JSON.stringify(saved.filter(c => c !== code)));
+    toast.success('Đã xoá phòng bình chọn.');
+    router.push('/');
+  } catch (e) {
+    toast.error(e.message || 'Không thể xoá phòng.');
+    showDeleteConfirm.value = false;
+  } finally {
+    deleting.value = false;
+  }
 };
 
 const copyLink = async () => {
@@ -305,7 +328,6 @@ const copyLink = async () => {
 </script>
 
 <style scoped>
-/* Close poll button — prominent red */
 .btn-close-poll {
   display: inline-flex; align-items: center; gap: 7px;
   padding: 9px 18px; font-size: 14px; font-weight: 600;
@@ -314,15 +336,22 @@ const copyLink = async () => {
 }
 .btn-close-poll:hover { background: #b91c1c; }
 
-/* SignalR pill */
+.btn-delete-poll {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 9px 18px; font-size: 14px; font-weight: 600;
+  background: transparent; color: var(--red); border: 1.5px solid var(--red);
+  border-radius: var(--radius); cursor: pointer; transition: all .12s;
+}
+.btn-delete-poll:hover:not(:disabled) { background: var(--red); color: #fff; }
+.btn-delete-poll:disabled { opacity: .6; cursor: not-allowed; }
+
 .sr-pill {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
 }
-.sr-ok { background: var(--green-light); color: var(--green); }
+.sr-ok  { background: var(--green-light); color: var(--green); }
 .sr-off { background: var(--surface-3); color: var(--text-4); border: 1px solid var(--border); }
 
-/* Meta row */
 .meta-row {
   display: flex; gap: 16px; flex-wrap: wrap;
   padding-top: 10px; border-top: 1px solid var(--border);
@@ -330,34 +359,26 @@ const copyLink = async () => {
 }
 .meta-row span { display: flex; align-items: center; gap: 5px; }
 
-/* Stat cards */
 .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; text-align: center; }
 .stat-icon-box { width: 34px; height: 34px; border-radius: 8px; background: var(--blue-light); color: var(--blue); display: flex; align-items: center; justify-content: center; margin: 0 auto 8px; }
 .stat-top { font-size: 13px; font-weight: 700; color: var(--text-2); line-height: 1.3; margin-bottom: 2px; }
 
-/* Bar chart */
 .bar-list { display: flex; flex-direction: column; gap: 12px; }
-
 .bar-row.win .bar-label { color: var(--blue); font-weight: 700; }
-
 .bar-meta { display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; }
 .bar-label { font-size: 14px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 5px; }
 .trophy { color: var(--amber); }
 .bar-right { font-size: 13px; color: var(--text-3); display: flex; gap: 5px; align-items: baseline; }
 .bar-right strong { font-size: 15px; font-weight: 800; color: var(--text-2); }
 .bar-pct { font-size: 12px; color: var(--text-4); }
-
 .bar-track { height: 22px; background: var(--surface-3); border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--border); }
 .bar-fill { height: 100%; background: var(--blue); border-radius: var(--radius-sm); min-width: 2px; transition: width .55s cubic-bezier(.4,0,.2,1); }
 .bar-fill.bar-win { background: var(--blue-dark); }
 
-/* Rating */
 .rating-header { display: flex; align-items: center; gap: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
-.rating-center { text-align: center; padding: 20px 0; }
 .avg-score { font-size: 56px; font-weight: 800; color: var(--blue); line-height: 1; letter-spacing: -.04em; }
 .star-row { display: flex; gap: 3px; justify-content: center; margin-top: 6px; }
 
-/* Section title */
 .section-title { font-size: 14px; font-weight: 700; color: var(--text-2); display: flex; align-items: center; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
 .live-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; background: var(--green-light); color: var(--green); font-size: 12px; font-weight: 700; }
 .ms-auto { margin-left: auto; }
@@ -365,10 +386,6 @@ const copyLink = async () => {
 .live-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; display: inline-block; animation: lp 1.8s ease infinite; }
 @keyframes lp { 0%,100%{opacity:1}50%{opacity:.3} }
 
-/* Denied icon */
-.denied-icon { width: 60px; height: 60px; border-radius: 50%; background: var(--red-light); border: 1px solid #fca5a5; display: flex; align-items: center; justify-content: center; margin: 0 auto; }
-
-/* Modal */
 .modal-bg { position: fixed; inset: 0; background: rgba(15,23,42,.4); backdrop-filter: blur(4px); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 20px; }
 .modal-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 28px; max-width: 360px; width: 100%; text-align: center; box-shadow: var(--shadow-md); }
 

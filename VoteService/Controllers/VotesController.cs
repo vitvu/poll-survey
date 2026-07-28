@@ -24,18 +24,15 @@ namespace VoteService.Controllers
             _context = context; _http = http; _config = config; _hub = hub;
         }
 
-        // POST /api/votes
         [HttpPost]
         public async Task<IActionResult> Submit([FromBody] Vote vote)
         {
             if (string.IsNullOrWhiteSpace(vote.PollCode) || string.IsNullOrWhiteSpace(vote.VoterToken))
                 return BadRequest(new { message = "Thiếu dữ liệu." });
 
-            // Mỗi voter chỉ vote 1 lần
             if (await _context.Votes.AnyAsync(v => v.PollCode == vote.PollCode && v.VoterToken == vote.VoterToken))
                 return BadRequest(new { message = "Bạn đã bình chọn rồi." });
 
-            // Kiểm tra poll còn active không
             var client  = _http.CreateClient();
             var pollUrl = _config["Services:PollServiceUrl"] ?? "http://localhost:5248";
             var check   = await client.GetAsync($"{pollUrl}/api/Polls/check/{vote.PollCode}");
@@ -46,7 +43,6 @@ namespace VoteService.Controllers
             _context.Votes.Add(vote);
             await _context.SaveChangesAsync();
 
-            // Tính kết quả mới rồi broadcast qua SignalR
             var results = await _context.Votes
                 .Where(v => v.PollCode == vote.PollCode)
                 .GroupBy(v => v.OptionId)
@@ -62,13 +58,11 @@ namespace VoteService.Controllers
                 results
             });
 
-            // Gửi sang AnalyticsService (fire & forget)
             _ = NotifyAnalytics(client, vote);
 
             return Ok(new { message = "Bình chọn thành công!" });
         }
 
-        // GET /api/votes/result/{pollCode}
         [HttpGet("result/{pollCode}")]
         public async Task<IActionResult> GetResult(string pollCode)
         {
@@ -80,7 +74,6 @@ namespace VoteService.Controllers
             return Ok(results);
         }
 
-        // GET /api/votes/total/{pollCode}
         [HttpGet("total/{pollCode}")]
         public async Task<IActionResult> GetTotal(string pollCode)
         {
@@ -88,7 +81,6 @@ namespace VoteService.Controllers
             return Ok(new { pollCode, totalVotes = total });
         }
 
-        // GET /api/votes/list/{pollCode} — để lấy open-text / rating values
         [HttpGet("list/{pollCode}")]
         public async Task<IActionResult> GetList(string pollCode)
         {
@@ -109,7 +101,7 @@ namespace VoteService.Controllers
                 await client.PostAsync($"{url}/api/Analytics",
                     new StringContent(payload, Encoding.UTF8, "application/json"));
             }
-            catch { /* silent */ }
+            catch { }
         }
     }
 }

@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const apiClient = axios.create({
-  baseURL: 'https://localhost:5000', // Ocelot Gateway
+  baseURL: 'https://localhost:5000',
   headers: { 'Content-Type': 'application/json' },
   timeout: 10000,
 });
@@ -15,20 +15,18 @@ apiClient.interceptors.response.use(
 );
 
 export const pollApi = {
-  // PollService
-  getPollByCode: (code)         => apiClient.get(`/api/polls/code/${code}`),
-  checkPoll:     (code)         => apiClient.get(`/api/polls/check/${code}`),
-  createPoll:    (data)         => apiClient.post('/api/polls', data),
-  updatePoll:    (id, data)     => apiClient.put(`/api/polls/${id}`, data),
+  getPollByCode:       (code)     => apiClient.get(`/api/polls/code/${code}`),
+  checkPoll:           (code)     => apiClient.get(`/api/polls/check/${code}`),
+  createPoll:          (data)     => apiClient.post('/api/polls', data),
+  updatePoll:          (id, data) => apiClient.put(`/api/polls/${id}`, data),
+  deletePoll:          (id)       => apiClient.delete(`/api/polls/${id}`),
 
-  // VoteService
-  submitVote:     (data)        => apiClient.post('/api/votes', data),
-  getVoteResults: (code)        => apiClient.get(`/api/votes/result/${code}`),
-  getVoteTotal:   (code)        => apiClient.get(`/api/votes/total/${code}`),
-  getVoteList:    (code)        => apiClient.get(`/api/votes/list/${code}`),
+  submitVote:          (data)     => apiClient.post('/api/votes', data),
+  getVoteResults:      (code)     => apiClient.get(`/api/votes/result/${code}`),
+  getVoteTotal:        (code)     => apiClient.get(`/api/votes/total/${code}`),
+  getVoteList:         (code)     => apiClient.get(`/api/votes/list/${code}`),
 
-  // AnalyticsService
-  getAnalyticsSummary: (code)   => apiClient.get(`/api/analytics/summary/${code}`),
+  getAnalyticsSummary: (code)     => apiClient.get(`/api/analytics/summary/${code}`),
 };
 
 export default apiClient;
