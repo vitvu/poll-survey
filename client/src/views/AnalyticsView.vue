@@ -1,66 +1,75 @@
 <template>
   <div class="container">
     <button class="btn btn-ghost btn-sm mb-3" @click="router.push('/')">
-      <ChevronLeft :size="15" /> Trang chủ
+      <ChevronLeft :size="15" /> Home
     </button>
 
-    <!-- Denied -->
+    <!-- Access Denied -->
     <div v-if="denied" class="card text-center" style="max-width:420px;margin:0 auto;">
-      <Lock :size="32" color="var(--red)" style="margin-bottom:12px;" />
-      <h2 style="font-size:17px;font-weight:800;margin-bottom:6px;">Không có quyền truy cập</h2>
-      <p class="page-sub mb-3">Chỉ người tạo phòng <strong>{{ deniedCode }}</strong> mới xem được.</p>
-      <router-link to="/" class="btn btn-ghost">Về trang chủ</router-link>
+      <Lock :size="32" color="var(--red)" class="mb-2" />
+      <h2 class="fw-700 mb-1" style="font-size:17px;">Access Denied</h2>
+      <p class="page-sub mb-3">Only the creator can view this page.</p>
+      <router-link to="/" class="btn btn-ghost">Go Home</router-link>
     </div>
 
     <!-- Loading -->
-    <div v-else-if="loading" class="text-center" style="padding:80px 0;">
+    <div v-else-if="loading" class="text-center mt-3">
       <div class="spinner spinner-blue" style="width:28px;height:28px;margin:0 auto 10px;"></div>
-      <p class="fs-sm text-3">Đang tải...</p>
+      <p class="fs-sm text-3">Loading...</p>
     </div>
 
+    <!-- Content -->
     <template v-else-if="poll">
-
-      <!-- Header -->
+      <!-- Header Card -->
       <div class="card mb-3">
-        <div class="d-flex align-center gap-2 mb-2 flex-wrap">
-          <span class="badge badge-blue">{{ poll.code }}</span>
-          <span class="badge" :class="isClosed ? 'badge-red' : 'badge-green'">
-            <span v-if="!isClosed" class="live-dot"></span>
-            {{ isClosed ? 'Đã đóng' : 'Đang mở' }}
-          </span>
-          <span class="badge badge-gray">{{ poll.questionType }}</span>
-        </div>
+        <div class="flex items-start gap-3">
+          <div class="flex-1">
+            <div class="flex items-center gap-2 mb-2 flex-wrap">
+              <span class="badge badge-blue">{{ poll.code }}</span>
+              <span class="badge" :class="isClosed ? 'badge-red' : 'badge-green'">
+                <span v-if="!isClosed" class="live-dot"></span>
+                {{ isClosed ? 'Closed' : 'Open' }}
+              </span>
+              <span class="badge badge-gray">{{ poll.questionType }}</span>
+            </div>
 
-        <h1 class="page-title mb-3" style="font-size:20px;">{{ poll.question }}</h1>
+            <h1 class="page-title mb-3" style="font-size:20px;">{{ poll.question }}</h1>
 
-        <div class="d-flex align-center gap-2 flex-wrap mb-2">
-          <button class="btn btn-outline" @click="copyLink">
-            <Copy :size="14" /> Sao chép link
-          </button>
-          <router-link :to="`/vote/${poll.code}`" class="btn btn-outline" target="_blank">
-            <ExternalLink :size="14" /> Mở trang vote
-          </router-link>
-          <button v-if="!isClosed" class="btn-close-poll" @click="showConfirm = true">
-            <StopCircle :size="14" /> Dừng bình chọn
-          </button>
-          <span v-else class="badge badge-red" style="padding:7px 12px;">Đã đóng</span>
-        </div>
+            <div class="flex items-center gap-2 flex-wrap mb-2">
+              <button class="btn btn-outline" @click="copyLink">
+                <Copy :size="14" /> Copy Link
+              </button>
+              <router-link :to="'/vote/' + poll.code" class="btn btn-outline" target="_blank">
+                <ExternalLink :size="14" /> Vote Page
+              </router-link>
+              <button v-if="!isClosed" class="btn btn-red btn-sm" @click="showConfirm = true">
+                <StopCircle :size="14" /> Stop
+              </button>
+              <span v-else class="badge badge-red" style="padding:7px 12px;">Closed</span>
+            </div>
 
-        <!-- SignalR status -->
-        <div class="sr-pill" :class="hubConnected ? 'sr-ok' : 'sr-off'">
-          <span class="live-dot"></span>
-          {{ hubConnected ? 'SignalR kết nối — cập nhật tức thì' : 'Đang kết nối...' }}
-        </div>
+            <span class="badge" :class="hubConnected ? 'badge-green' : 'badge-gray'">
+              <span class="live-dot"></span>
+              {{ hubConnected ? 'Live' : 'Connecting...' }}
+            </span>
 
-        <!-- Share link -->
-        <div class="d-flex gap-2 mt-3">
-          <input class="form-control fs-sm" :value="shareLink" readonly style="background:var(--surface-2);" />
-          <button class="btn btn-light" style="flex-shrink:0;" @click="copyLink"><Copy :size="13" /></button>
-        </div>
+            <div class="flex gap-2 mt-3">
+              <input class="form-control fs-sm" :value="shareLink" readonly style="background:var(--surface-2);" />
+              <button class="btn btn-light shrink-0" @click="copyLink">
+                <Clipboard :size="14" />
+              </button>
+            </div>
 
-        <div class="meta-row mt-3">
-          <span><Calendar :size="12" /> {{ createdText }}</span>
-          <span><Clock :size="12" /> {{ expireText }}</span>
+            <div class="meta-row mt-3">
+              <span><Calendar :size="14" /> {{ createdText }}</span>
+              <span><Clock :size="14" /> {{ expireText }}</span>
+            </div>
+          </div>
+
+          <div class="qr-thumb" @click="showQRModal = true">
+            <canvas ref="qrCanvas"></canvas>
+            <div class="qr-thumb-overlay"><Maximize2 :size="16" /></div>
+          </div>
         </div>
       </div>
 
@@ -69,34 +78,38 @@
         <div class="stat-card">
           <div class="stat-icon-box"><Users :size="16" /></div>
           <div class="stat-num">{{ totalVotes }}</div>
-          <div class="stat-label">Tổng lượt vote</div>
+          <div class="stat-label">Total Votes</div>
         </div>
-        <div class="stat-card" v-if="topText">
+        <div v-if="topText" class="stat-card">
           <div class="stat-icon-box"><Trophy :size="16" /></div>
           <div class="stat-top">{{ topText }}</div>
-          <div class="stat-label">Dẫn đầu</div>
+          <div class="stat-label">Leading</div>
         </div>
       </div>
 
       <!-- Results -->
       <div class="card mb-3">
         <div class="section-title">
-          <BarChart2 :size="14" /> Kết quả
-          <span class="live-badge ms-auto"><span class="live-dot"></span>Live</span>
+          <BarChart2 :size="16" style="margin-right:6px;" /> Results
+          <span class="live-badge" style="margin-left:auto;">
+            <span class="live-dot"></span>Live
+          </span>
         </div>
 
-        <!-- Multiple Choice / Yes-No: bar chart -->
+        <!-- Multiple Choice / Yes-No -->
         <template v-if="['Multiple Choice', 'Yes / No'].includes(poll.questionType)">
-          <div v-if="!totalVotes" class="empty-state">
-            <p class="fs-sm">Chưa có lượt bình chọn.</p>
-          </div>
+          <div v-if="!totalVotes" class="empty-state"><p class="fs-sm">No votes yet.</p></div>
           <div v-else class="bar-list">
             <div v-for="(opt, i) in choiceResults" :key="opt.id" class="bar-row" :class="{ win: i===0 && opt.count>0 }">
               <div class="bar-meta">
                 <span class="bar-label">
-                  <Trophy v-if="i===0 && opt.count>0" :size="12" class="trophy" /> {{ opt.text }}
+                  <Trophy v-if="i===0 && opt.count>0" :size="14" style="color:var(--amber);margin-right:3px;" />
+                  {{ opt.text }}
                 </span>
-                <span class="bar-right"><strong>{{ opt.count }}</strong> <span class="bar-pct">{{ opt.pct }}%</span></span>
+                <span class="bar-right">
+                  <strong>{{ opt.count }}</strong>
+                  <span class="bar-pct">{{ opt.pct }}%</span>
+                </span>
               </div>
               <div class="bar-track">
                 <div class="bar-fill" :class="{ 'bar-win': i===0 && opt.count>0 }"
@@ -106,30 +119,27 @@
           </div>
         </template>
 
-        <!-- Rating: điểm trung bình + breakdown từng mức sao -->
+        <!-- Rating -->
         <template v-else-if="poll.questionType === 'Rating'">
-          <div v-if="!totalVotes" class="empty-state"><p class="fs-sm">Chưa có lượt đánh giá.</p></div>
+          <div v-if="!totalVotes" class="empty-state"><p class="fs-sm">No ratings yet.</p></div>
           <div v-else>
-            <!-- Tóm tắt trên -->
             <div class="rating-header mb-3">
               <div class="avg-score">{{ avgRating }}</div>
               <div>
                 <div class="star-row mb-1">
                   <Star v-for="s in 5" :key="s" :size="20"
-                    :fill="s <= Math.round(parseFloat(avgRating)) ? 'var(--amber)' : 'none'"
-                    :color="s <= Math.round(parseFloat(avgRating)) ? 'var(--amber)' : 'var(--border-2)'" />
+                    :color="s <= Math.round(parseFloat(avgRating)) ? 'var(--amber)' : 'var(--border-2)'"
+                    :fill="s <= Math.round(parseFloat(avgRating)) ? 'var(--amber)' : 'transparent'" />
                 </div>
-                <p class="fs-xs text-3">{{ totalVotes }} lượt đánh giá</p>
+                <p class="fs-xs text-3">{{ totalVotes }} ratings</p>
               </div>
             </div>
-
-            <!-- Breakdown từng mức sao — frontend tự tính từ raw data -->
             <div class="bar-list">
               <div v-for="s in [5,4,3,2,1]" :key="s" class="bar-row">
                 <div class="bar-meta">
-                  <span class="bar-label" style="gap:4px;">
-                    <Star :size="13" fill="var(--amber)" color="var(--amber)" />
-                    {{ s }} sao
+                  <span class="bar-label">
+                    <Star :size="14" style="color:var(--amber);margin-right:3px;fill:var(--amber);" />
+                    {{ s }} stars
                   </span>
                   <span class="bar-right">
                     <strong>{{ ratingBreakdown[s] }}</strong>
@@ -138,33 +148,64 @@
                 </div>
                 <div class="bar-track">
                   <div class="bar-fill"
-                    :style="{ width: totalVotes > 0 ? (ratingBreakdown[s]/totalVotes*100)+'%' : '0%' }">
-                  </div>
+                    :style="{ width: totalVotes > 0 ? (ratingBreakdown[s]/totalVotes*100)+'%' : '0%' }"></div>
                 </div>
               </div>
             </div>
           </div>
         </template>
 
-        <!-- Open Text: danh sách phản hồi -->
+        <!-- Open Text -->
         <template v-else-if="poll.questionType === 'Open Text'">
-          <p class="fs-sm fw-600 mb-2">{{ textList.length }} phản hồi</p>
-          <div v-if="!textList.length" class="empty-state"><p class="fs-sm">Chưa có phản hồi.</p></div>
+          <p class="fs-sm fw-600 mb-2">
+            <MessageSquare :size="14" style="display:inline-block;margin-right:4px;vertical-align:text-bottom;" />
+            {{ textList.length }} responses
+          </p>
+          <div v-if="!textList.length" class="empty-state"><p class="fs-sm">No responses yet.</p></div>
           <div v-for="(t, i) in textList" :key="i" class="response-item">{{ t }}</div>
         </template>
       </div>
-
     </template>
 
-    <!-- Confirm modal -->
+    <!-- QR Modal -->
+    <div v-if="showQRModal" class="modal-bg" @click.self="showQRModal = false">
+      <div class="modal-box">
+        <button class="modal-close" @click="showQRModal = false">
+          <X :size="20" />
+        </button>
+        <div class="qr-modal-canvas">
+          <canvas ref="qrCanvasLarge"></canvas>
+        </div>
+        <div class="flex flex-col gap-2 mt-3">
+          <div class="flex items-center justify-center"
+            style="padding:10px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);">
+            <span style="font-size:20px;font-weight:800;color:var(--blue);letter-spacing:2px;">
+              {{ poll?.code }}
+            </span>
+          </div>
+          <div class="flex gap-2 items-center">
+            <input :value="shareLink" readonly class="form-control fs-sm"
+              style="background:var(--surface-2);font-family:monospace;"
+              @click="$event.target.select()" />
+            <button class="btn-icon shrink-0" @click="copyLink">
+              <Copy :size="16" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Confirm Modal -->
     <div v-if="showConfirm" class="modal-bg" @click.self="showConfirm=false">
       <div class="modal-box">
-        <StopCircle :size="28" color="var(--red)" style="margin-bottom:12px;" />
-        <h3 style="font-size:17px;font-weight:800;margin-bottom:8px;">Dừng bình chọn?</h3>
-        <p class="fs-sm text-3 mb-3">Người dùng sẽ không thể vote thêm sau khi đóng.</p>
-        <div class="d-flex gap-2 justify-center">
-          <button class="btn btn-ghost" @click="showConfirm=false">Hủy</button>
-          <button class="btn-close-poll" @click="closePoll"><StopCircle :size="14" /> Dừng ngay</button>
+        <StopCircle :size="32" color="var(--red)" class="mb-2" />
+        <h3 class="fw-700 mb-2" style="font-size:17px;">Stop Poll?</h3>
+        <p class="fs-sm text-3 mb-3">Users will not be able to vote after closing.</p>
+        <div class="flex gap-2 justify-center">
+          <button class="btn btn-ghost" @click="showConfirm=false">Cancel</button>
+          <button class="btn btn-red" @click="closePoll">
+            <StopCircle :size="14" /> Stop Now
+          </button>
         </div>
       </div>
     </div>
@@ -172,205 +213,211 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
-import { pollApi } from '../services/api';
-import { useToastStore } from '../stores/toastStore';
-import { usePollHub } from '../composables/usePollHub';
-import { ChevronLeft, Lock, Copy, ExternalLink, StopCircle, Calendar, Clock, Users, Trophy, Star, BarChart2 } from 'lucide-vue-next';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useToast } from 'vue-toastification'
+import { pollApi } from '../api'
+import { usePollHub } from '../usePollHub'
+import QRCode from 'qrcode'
+import { ChevronLeft, Lock, Copy, ExternalLink, StopCircle, Calendar, Clock, Users, Trophy, BarChart2, Star, MessageSquare, Clipboard, Maximize2, X } from '@lucide/vue'
 
-const route  = useRoute();
-const router = useRouter();
-const toast  = useToastStore();
-const code   = route.query.code;
+const route = useRoute()
+const router = useRouter()
+const toast = useToast()
+const code = route.query.code
 
-const loading       = ref(false);
-const denied        = ref(false);
-const deniedCode    = ref('');
-const poll          = ref(null);
-const totalVotes    = ref(0);
-const choiceResults = ref([]);
-const textList      = ref([]);
-const ratingVotes   = ref([]);
-const showConfirm   = ref(false);
+const loading = ref(false)
+const denied = ref(false)
+const poll = ref(null)
+const totalVotes = ref(0)
+const choiceResults = ref([])
+const textList = ref([])
+const ratingVotes = ref([])
+const showConfirm = ref(false)
+const showQRModal = ref(false)
+const qrCanvas = ref(null)
+const qrCanvasLarge = ref(null)
 
-const isClosed  = computed(() => !poll.value || poll.value.status !== 'Active' || new Date(poll.value.expireAt) <= new Date());
-const shareLink = computed(() => `${location.origin}/vote/${poll.value?.code}`);
-const topText   = computed(() => choiceResults.value[0]?.count > 0 ? choiceResults.value[0].text : '');
+const isClosed = computed(() =>
+  !poll.value || poll.value.status !== 'Active' || new Date(poll.value.expireAt) <= new Date()
+)
 
+const shareLink = computed(() => `${location.origin}/vote/${poll.value?.code}`)
+const topText = computed(() => choiceResults.value[0]?.count > 0 ? choiceResults.value[0].text : '')
 const avgRating = computed(() => {
-  const nums = ratingVotes.value.map(v => parseFloat(v.voteValue)).filter(n => n > 0);
-  return nums.length ? (nums.reduce((a, b) => a + b, 0) / nums.length).toFixed(1) : '0.0';
-});
+  const nums = ratingVotes.value.map(v => parseFloat(v.voteValue)).filter(n => n > 0)
+  return nums.length ? (nums.reduce((a, b) => a + b, 0) / nums.length).toFixed(1) : '0.0'
+})
 
-// Đếm mỗi mức sao có bao nhiêu người chọn
 const ratingBreakdown = computed(() => {
-  const counts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+  const counts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
   ratingVotes.value.forEach(v => {
-    const s = parseInt(v.voteValue);
-    if (s >= 1 && s <= 5) counts[s]++;
-  });
-  return counts;
-});
+    const s = parseInt(v.voteValue)
+    if (s >= 1 && s <= 5) counts[s]++
+  })
+  return counts
+})
 
-const createdText = computed(() => poll.value
-  ? new Date(poll.value.createdAt).toLocaleDateString('vi-VN') : '');
-
+const createdText = computed(() => poll.value ? new Date(poll.value.createdAt).toLocaleDateString('en-US') : '')
 const expireText = computed(() => {
-  if (!poll.value) return '';
-  const d = new Date(poll.value.expireAt);
-  return d.getFullYear() > new Date().getFullYear() + 50 ? 'Không giới hạn'
-    : d.toLocaleString('vi-VN', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
-});
+  if (!poll.value) return ''
+  const d = new Date(poll.value.expireAt)
+  return d.getFullYear() > new Date().getFullYear() + 50 ? 'No limit' : d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+})
 
-// SignalR: nhận vote mới, cập nhật kết quả ngay
-const { connected: hubConnected, start: hubStart } = usePollHub(code, async (data) => {
-  totalVotes.value = data.total;
+const buildBars = (results, total) => {
+  if (!poll.value) return
+  const counts = Object.fromEntries(results.map(r => [r.optionId, r.count]))
+  choiceResults.value = poll.value.options
+    .map(o => ({
+      id: o.id,
+      text: o.text,
+      count: counts[o.id] || 0,
+      pct: total > 0 ? Math.round(((counts[o.id] || 0) / total) * 100) : 0,
+    }))
+    .sort((a, b) => b.count - a.count)
+}
 
-  if (poll.value && ['Multiple Choice', 'Yes / No'].includes(poll.value.questionType)) {
-    // data.results đã có từ server, frontend tự build bars
-    buildBars(data.results, data.total);
-  } else if (poll.value?.questionType === 'Rating') {
-    // Lấy raw list rồi tự tính
-    const res = await pollApi.getVoteList(code);
-    ratingVotes.value = res.data;
-  } else if (poll.value?.questionType === 'Open Text') {
-    const res = await pollApi.getVoteList(code);
-    textList.value = res.data.map(v => v.voteValue).filter(Boolean);
+const loadResults = async () => {
+  if (!poll.value) return
+  const totalRes = await pollApi.getVoteTotal(code)
+  totalVotes.value = totalRes.data.totalVotes
+  const type = poll.value.questionType
+
+  if (['Multiple Choice', 'Yes / No'].includes(type)) {
+    const res = await pollApi.getVoteResults(code)
+    buildBars(res.data.map(r => ({ optionId: r.optionId, count: r.count })), totalVotes.value)
+  } else {
+    const res = await pollApi.getVoteList(code)
+    if (type === 'Rating') ratingVotes.value = res.data
+    else if (type === 'Open Text') textList.value = res.data.map(v => v.voteValue).filter(Boolean)
   }
-});
+}
 
-let fallback = null;
+const generateQR = async (canvas, size) => {
+  if (!canvas) return
+  try {
+    await QRCode.toCanvas(canvas, shareLink.value, {
+      width: size,
+      margin: 2,
+      color: { dark: '#1e293b', light: '#ffffff' },
+      errorCorrectionLevel: 'H',
+    })
+  } catch (err) {
+    console.error('QR failed:', err)
+  }
+}
+
+const { connected: hubConnected, start: hubStart } = usePollHub(code, async data => {
+  totalVotes.value = data.total
+  if (['Multiple Choice', 'Yes / No'].includes(poll.value?.questionType)) {
+    buildBars(data.results, data.total)
+  } else {
+    await loadResults()
+  }
+})
+
+let fallback = null
 
 onMounted(async () => {
-  if (!code) return;
-  const saved = JSON.parse(localStorage.getItem('createdPolls') || '[]');
-  if (!saved.includes(code)) { denied.value = true; deniedCode.value = code; return; }
+  if (!code) return
 
-  loading.value = true;
+  const saved = JSON.parse(localStorage.getItem('createdPolls') || '[]')
+  if (!saved.includes(code)) {
+    denied.value = true
+    return
+  }
+
+  loading.value = true
   try {
     const [pollRes, totalRes] = await Promise.all([
       pollApi.getPollByCode(code),
       pollApi.getVoteTotal(code),
-    ]);
-    poll.value       = pollRes.data;
-    totalVotes.value = totalRes.data.totalVotes;
+    ])
 
-    await loadResults();
-    hubStart();
-    fallback = setInterval(() => { if (!hubConnected.value) loadResults(); }, 6000);
-  } catch { toast.error('Không thể tải dữ liệu.'); }
-  finally  { loading.value = false; }
-});
+    poll.value = pollRes.data
+    totalVotes.value = totalRes.data.totalVotes
 
-onUnmounted(() => clearInterval(fallback));
+    await loadResults()
+    hubStart()
 
-const buildBars = (results, total) => {
-  const counts = Object.fromEntries(results.map(r => [r.optionId, r.count]));
-  choiceResults.value = poll.value.options
-    .map(o => ({ id: o.id, text: o.text, count: counts[o.id] || 0,
-      pct: total > 0 ? Math.round(((counts[o.id] || 0) / total) * 100) : 0 }))
-    .sort((a, b) => b.count - a.count);
-};
+    fallback = setInterval(() => {
+      if (!hubConnected.value) loadResults()
+    }, 6000)
 
-const loadResults = async () => {
-  if (!poll.value) return;
-  const totalRes = await pollApi.getVoteTotal(code);
-  totalVotes.value = totalRes.data.totalVotes;
-
-  const type = poll.value.questionType;
-  if (['Multiple Choice', 'Yes / No'].includes(type)) {
-    const res = await pollApi.getVoteResults(code);
-    buildBars(res.data.map(r => ({ optionId: r.optionId, count: r.count })), totalVotes.value);
-  } else {
-    const res = await pollApi.getVoteList(code);
-    if (type === 'Rating')      ratingVotes.value = res.data;
-    else if (type === 'Open Text') textList.value = res.data.map(v => v.voteValue).filter(Boolean);
+    setTimeout(() => {
+      if (qrCanvas.value) generateQR(qrCanvas.value, 100)
+    }, 100)
+  } catch {
+    toast.error('Failed to load data.')
+  } finally {
+    loading.value = false
   }
-};
+})
+
+watch(showQRModal, async isOpen => {
+  if (isOpen) {
+    await new Promise(r => setTimeout(r, 50))
+    if (qrCanvasLarge.value) generateQR(qrCanvasLarge.value, 320)
+  }
+})
+
+onUnmounted(() => {
+  clearInterval(fallback)
+})
 
 const closePoll = async () => {
-  showConfirm.value = false;
+  showConfirm.value = false
   try {
-    await pollApi.updatePoll(poll.value.id, { ...poll.value, status: 'Closed' });
-    poll.value.status = 'Closed';
-    toast.success('Đã dừng bình chọn.');
-  } catch { toast.error('Không thể đóng phòng.'); }
-};
+    await pollApi.updatePoll(poll.value.id, { ...poll.value, status: 'Closed' })
+    poll.value.status = 'Closed'
+    toast.success('Poll stopped.')
+  } catch {
+    toast.error('Failed to close poll.')
+  }
+}
 
 const copyLink = async () => {
-  try   { await navigator.clipboard.writeText(shareLink.value); toast.success('Đã sao chép!'); }
-  catch { toast.error('Không thể sao chép.'); }
-};
+  try {
+    await navigator.clipboard.writeText(shareLink.value)
+    toast.success('Link copied!')
+  } catch {
+    toast.error('Failed to copy.')
+  }
+}
 </script>
 
 <style scoped>
-/* Close poll button — prominent red */
-.btn-close-poll {
-  display: inline-flex; align-items: center; gap: 7px;
-  padding: 9px 18px; font-size: 14px; font-weight: 600;
-  background: var(--red); color: #fff; border: 1.5px solid var(--red);
-  border-radius: var(--radius); cursor: pointer; transition: background .12s;
+.qr-thumb {
+  position: relative;
+  width: 100px; height: 100px;
+  flex-shrink: 0;
+  cursor: pointer;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #fff; padding: 4px;
+  box-shadow: var(--shadow);
+  transition: transform .2s, box-shadow .2s;
 }
-.btn-close-poll:hover { background: #b91c1c; }
-
-/* SignalR pill */
-.sr-pill {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
+.qr-thumb:hover { transform: scale(1.05); box-shadow: 0 4px 12px rgba(0,0,0,.15); }
+.qr-thumb canvas { width: 100%; height: 100%; }
+.qr-thumb-overlay {
+  position: absolute; inset: 0;
+  background: rgba(15,23,42,.75);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; opacity: 0; transition: opacity .2s;
 }
-.sr-ok { background: var(--green-light); color: var(--green); }
-.sr-off { background: var(--surface-3); color: var(--text-4); border: 1px solid var(--border); }
-
-/* Meta row */
-.meta-row {
-  display: flex; gap: 16px; flex-wrap: wrap;
-  padding-top: 10px; border-top: 1px solid var(--border);
-  font-size: 13px; color: var(--text-3);
+.qr-thumb:hover .qr-thumb-overlay { opacity: 1; }
+.qr-modal-canvas {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  display: flex; align-items: center; justify-content: center;
 }
-.meta-row span { display: flex; align-items: center; gap: 5px; }
+.qr-modal-canvas canvas { border-radius: var(--radius); }
 
-/* Stat cards */
-.stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; text-align: center; }
-.stat-icon-box { width: 34px; height: 34px; border-radius: 8px; background: var(--blue-light); color: var(--blue); display: flex; align-items: center; justify-content: center; margin: 0 auto 8px; }
-.stat-top { font-size: 13px; font-weight: 700; color: var(--text-2); line-height: 1.3; margin-bottom: 2px; }
-
-/* Bar chart */
-.bar-list { display: flex; flex-direction: column; gap: 12px; }
-
-.bar-row.win .bar-label { color: var(--blue); font-weight: 700; }
-
-.bar-meta { display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; }
-.bar-label { font-size: 14px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 5px; }
-.trophy { color: var(--amber); }
-.bar-right { font-size: 13px; color: var(--text-3); display: flex; gap: 5px; align-items: baseline; }
-.bar-right strong { font-size: 15px; font-weight: 800; color: var(--text-2); }
-.bar-pct { font-size: 12px; color: var(--text-4); }
-
-.bar-track { height: 22px; background: var(--surface-3); border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--border); }
-.bar-fill { height: 100%; background: var(--blue); border-radius: var(--radius-sm); min-width: 2px; transition: width .55s cubic-bezier(.4,0,.2,1); }
-.bar-fill.bar-win { background: var(--blue-dark); }
-
-/* Rating */
-.rating-header { display: flex; align-items: center; gap: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
-.rating-center { text-align: center; padding: 20px 0; }
-.avg-score { font-size: 56px; font-weight: 800; color: var(--blue); line-height: 1; letter-spacing: -.04em; }
-.star-row { display: flex; gap: 3px; justify-content: center; margin-top: 6px; }
-
-/* Section title */
-.section-title { font-size: 14px; font-weight: 700; color: var(--text-2); display: flex; align-items: center; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
-.live-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; background: var(--green-light); color: var(--green); font-size: 12px; font-weight: 700; }
-.ms-auto { margin-left: auto; }
-
-.live-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; display: inline-block; animation: lp 1.8s ease infinite; }
-@keyframes lp { 0%,100%{opacity:1}50%{opacity:.3} }
-
-/* Denied icon */
-.denied-icon { width: 60px; height: 60px; border-radius: 50%; background: var(--red-light); border: 1px solid #fca5a5; display: flex; align-items: center; justify-content: center; margin: 0 auto; }
-
-/* Modal */
-.modal-bg { position: fixed; inset: 0; background: rgba(15,23,42,.4); backdrop-filter: blur(4px); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 20px; }
-.modal-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 28px; max-width: 360px; width: 100%; text-align: center; box-shadow: var(--shadow-md); }
-
-.empty-state { text-align: center; padding: 28px; color: var(--text-4); }
+@media (max-width: 600px) {
+  .qr-thumb { width: 72px; height: 72px; }
+}
 </style>

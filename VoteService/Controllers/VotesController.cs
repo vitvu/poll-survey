@@ -29,24 +29,24 @@ namespace VoteService.Controllers
         public async Task<IActionResult> Submit([FromBody] Vote vote)
         {
             if (string.IsNullOrWhiteSpace(vote.PollCode) || string.IsNullOrWhiteSpace(vote.VoterToken))
-                return BadRequest(new { message = "Thiếu dữ liệu." });
+                return BadRequest(new { message = "Missing required data." });
 
-            // Mỗi voter chỉ vote 1 lần
+            // Each voter can only vote once
             if (await _context.Votes.AnyAsync(v => v.PollCode == vote.PollCode && v.VoterToken == vote.VoterToken))
-                return BadRequest(new { message = "Bạn đã bình chọn rồi." });
+                return BadRequest(new { message = "You have already voted." });
 
-            // Kiểm tra poll còn active không
+            // Check if poll is still active
             var client  = _http.CreateClient();
             var pollUrl = _config["Services:PollServiceUrl"] ?? "http://localhost:5248";
             var check   = await client.GetAsync($"{pollUrl}/api/Polls/check/{vote.PollCode}");
             if (!check.IsSuccessStatusCode)
-                return BadRequest(new { message = "Poll không hợp lệ hoặc đã đóng." });
+                return BadRequest(new { message = "Poll is invalid or has been closed." });
 
             vote.CreatedAt = DateTime.Now;
             _context.Votes.Add(vote);
             await _context.SaveChangesAsync();
 
-            // Tính kết quả mới rồi broadcast qua SignalR
+            // Calculate new results and broadcast via SignalR
             var results = await _context.Votes
                 .Where(v => v.PollCode == vote.PollCode)
                 .GroupBy(v => v.OptionId)
@@ -62,10 +62,10 @@ namespace VoteService.Controllers
                 results
             });
 
-            // Gửi sang AnalyticsService (fire & forget)
+            // Send to AnalyticsService (fire & forget)
             _ = NotifyAnalytics(client, vote);
 
-            return Ok(new { message = "Bình chọn thành công!" });
+            return Ok(new { message = "Vote submitted successfully!" });
         }
 
         // GET /api/votes/result/{pollCode}
@@ -88,7 +88,7 @@ namespace VoteService.Controllers
             return Ok(new { pollCode, totalVotes = total });
         }
 
-        // GET /api/votes/list/{pollCode} — để lấy open-text / rating values
+        // GET /api/votes/list/{pollCode} — Get open-text / rating values
         [HttpGet("list/{pollCode}")]
         public async Task<IActionResult> GetList(string pollCode)
         {
@@ -98,6 +98,22 @@ namespace VoteService.Controllers
                 .Select(v => new { v.OptionId, v.VoteValue, v.CreatedAt })
                 .ToListAsync();
             return Ok(list);
+        }
+
+        // POST /api/votes/broadcast-poll-closed — PollService calls this to notify poll closed
+        [HttpPost("broadcast-poll-closed")]
+        public async Task<IActionResult> BroadcastPollClosed([FromBody] PollClosedRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request.PollCode))
+                return BadRequest(new { message = "PollCode is required." });
+
+            await _hub.Clients.Group($"poll_{request.PollCode}").SendAsync("PollClosed", new
+            {
+                pollCode = request.PollCode,
+                status = "Closed"
+            });
+
+            return Ok(new { message = "Broadcast sent." });
         }
 
         private async Task NotifyAnalytics(HttpClient client, Vote vote)
@@ -111,5 +127,10 @@ namespace VoteService.Controllers
             }
             catch { /* silent */ }
         }
+    }
+
+    public class PollClosedRequest
+    {
+        public string PollCode { get; set; } = string.Empty;
     }
 }

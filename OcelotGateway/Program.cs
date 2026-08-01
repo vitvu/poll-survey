@@ -24,6 +24,13 @@ var app = builder.Build();
 
 app.UseCors("AllowAll");
 
+// Serve static files từ thư mục client
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
+// SPA fallback: trả về index.html cho mọi route không phải /api
+app.MapFallbackToFile("index.html");
+
 // Sử dụng Ocelot Middleware để điều hướng Request
 await app.UseOcelot();
 

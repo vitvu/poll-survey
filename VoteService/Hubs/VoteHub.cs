@@ -5,7 +5,7 @@ namespace VoteService.Hubs
     public class VoteHub : Hub
     {
         /// <summary>
-        /// Client tham gia vào phòng theo PollCode để nhận real-time updates
+        /// Client joins the poll room by PollCode to receive real-time updates
         /// </summary>
         public async Task JoinPollRoom(string pollCode)
         {
@@ -14,7 +14,7 @@ namespace VoteService.Hubs
         }
 
         /// <summary>
-        /// Client rời khỏi phòng
+        /// Client leaves the poll room
         /// </summary>
         public async Task LeavePollRoom(string pollCode)
         {
@@ -22,7 +22,7 @@ namespace VoteService.Hubs
         }
 
         /// <summary>
-        /// Broadcast vote mới đến tất cả clients đang xem kết quả
+        /// Broadcast new vote to all clients viewing results
         /// </summary>
         public async Task BroadcastVoteUpdate(string pollCode, object voteData)
         {

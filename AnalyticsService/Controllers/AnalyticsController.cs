@@ -13,7 +13,7 @@ namespace AnalyticsService.Controllers
 
         public AnalyticsController(AnalyticsDbContext context) => _context = context;
 
-        // POST /api/analytics — VoteService gửi log vote sang
+        // POST /api/analytics — VoteService sends vote logs here
         [HttpPost]
         public async Task<IActionResult> Add([FromBody] Analytics data)
         {
