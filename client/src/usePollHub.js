@@ -48,7 +48,7 @@ export function usePollHub(pollCode, onVoteUpdated) {
           await connection.invoke('LeavePollRoom', pollCode).catch(() => {})
           await connection.stop()
         }
-      } catch {}
+      } catch (_) { /* ignore disconnect errors */ }
       connection = null
     }
     connected.value = false

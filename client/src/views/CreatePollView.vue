@@ -170,7 +170,7 @@ const saveCreatorCode = code => {
       list.push(code)
       localStorage.setItem('createdPolls', JSON.stringify(list))
     }
-  } catch {}
+  } catch (_) { /* localStorage parse error, ignore */ }
 }
 
 const submit = async () => {
