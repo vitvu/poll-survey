@@ -20,10 +20,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 const routes = [
   {
     path: '/',
-    name: 'Home',
-    // Lazy loading: chỉ tải file khi user thực sự vào trang này
-    // Giúp app khởi động nhanh hơn vì không tải hết mọi thứ ngay từ đầu
-    component: () => import('../views/HomeView.vue'),
+    name: 'Home',component: () => import('../views/HomeView.vue'),
     meta: { title: 'PollBuilder' }, // Tiêu đề tab trình duyệt
   },
   {
