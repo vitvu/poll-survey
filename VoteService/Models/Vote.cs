@@ -1,24 +1,23 @@
 namespace VoteService.Models
 {
-    // Lớp đại diện cho bảng Votes trong cơ sở dữ liệu VoteDB
     public class Vote
     {
-        // Khóa chính (Id tự tăng)
+        // auto-incremented primary key from database
         public int Id { get; set; }
 
-        // Mã PollCode liên kết với cuộc bình chọn đang vote
+        // poll code that this vote belongs to
         public string PollCode { get; set; } = string.Empty;
 
-        // Mã phương án được chọn (OptionId), nếu là Rating/Open Text có thể là 0
+        // id of the option that was voted for
         public int OptionId { get; set; }
 
-        // Giá trị đánh giá hoặc nội dung phản hồi (nếu là dạng Rating / Open Text)
+        // vote value for rating or open-text responses
         public string VoteValue { get; set; } = string.Empty;
 
-        // Chuỗi Token nhận diện trình duyệt/người dùng để ngăn chặn bình chọn 2 lần
+        // voter browser token to prevent duplicate voting
         public string VoterToken { get; set; } = string.Empty;
 
-        // Thời điểm thực hiện lượt vote
+        // timestamp when vote was recorded
         public DateTime CreatedAt { get; set; } = DateTime.Now;
     }
 }

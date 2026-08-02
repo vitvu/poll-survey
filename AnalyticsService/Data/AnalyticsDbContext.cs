@@ -3,14 +3,16 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AnalyticsService.Data
 {
-    // Lớp DbContext quản lý kết nối cơ sở dữ liệu AnalyticsDB
     public class AnalyticsDbContext : DbContext
     {
-        public AnalyticsDbContext(DbContextOptions<AnalyticsDbContext> options) : base(options)
+        // constructor receives database options from dependency injection
+        public AnalyticsDbContext(DbContextOptions<AnalyticsDbContext> databaseOptions) 
+            // pass options to parent dbcontext class
+            : base(databaseOptions)
         {
         }
 
-        // Tập dữ liệu phục vụ thống kê phân tích
+        // dbset property maps to the analytics table in database
         public DbSet<Analytics> Analytics { get; set; }
     }
 }

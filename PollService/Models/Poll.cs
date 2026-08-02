@@ -1,30 +1,29 @@
 namespace PollService.Models
 {
-    // Lớp đại diện cho bảng Polls trong cơ sở dữ liệu PollDB
     public class Poll
     {
-        // Mã định danh duy nhất (Khóa chính - Primary Key), tự động tăng
+        // auto-incremented primary key from database
         public int Id { get; set; }
 
-        // Mã viết tắt của cuộc bình chọn (Ví dụ: "POLL001"), dùng để chia sẻ đường dẫn
+        // unique poll code used in urls (e.g. poll123)
         public string Code { get; set; } = string.Empty;
 
-        // Nội dung câu hỏi của cuộc bình chọn
+        // the question text displayed to voters
         public string Question { get; set; } = string.Empty;
 
-        // Loại câu hỏi: "Multiple Choice" (Nhiều lựa chọn), "Yes / No", "Rating" (Đánh giá), "Open Text" (Tự do)
+        // type of poll: multiple choice, yes no, rating, open text
         public string QuestionType { get; set; } = string.Empty;
 
-        // Trạng thái của cuộc bình chọn: "Active" (Đang hoạt động), "Closed" (Đã đóng)
+        // current status: active or closed
         public string Status { get; set; } = "Active";
 
-        // Thời điểm hết hạn của cuộc bình chọn
+        // date and time when poll stops accepting votes
         public DateTime ExpireAt { get; set; }
 
-        // Thời điểm tạo cuộc bình chọn (mặc định lấy thời gian hiện tại)
+        // timestamp when poll was created
         public DateTime CreatedAt { get; set; } = DateTime.Now;
 
-        // Quan hệ 1-Nhiều (1 Poll chứa nhiều Option lựa chọn)
+        // list of voting options for this poll
         public List<Option> Options { get; set; } = new List<Option>();
     }
 }

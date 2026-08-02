@@ -3,18 +3,19 @@ using PollService.Models;
 
 namespace PollService.Data
 {
-    // Lớp quản lý kết nối và thao tác với Database PollDB thông qua EF Core
     public class PollDbContext : DbContext
     {
-        // Constructor nhận cấu hình (Connection String, Provider...) truyền từ Program.cs
-        public PollDbContext(DbContextOptions<PollDbContext> options) : base(options)
+        // constructor receives database options from dependency injection
+        public PollDbContext(DbContextOptions<PollDbContext> databaseOptions) 
+            // pass options to parent dbcontext class
+            : base(databaseOptions)
         {
         }
 
-        // Khai báo bảng Polls tương ứng với tập dữ liệu các cuộc bình chọn
+        // dbset property maps to the polls table in database
         public DbSet<Poll> Polls { get; set; }
 
-        // Khai báo bảng Options tương ứng với tập dữ liệu các lựa chọn
+        // dbset property maps to the options table in database
         public DbSet<Option> Options { get; set; }
     }
 }

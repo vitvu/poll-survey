@@ -3,54 +3,65 @@ using PollService.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Cấu hình CORS
+// configure cors policy to allow frontend requests
 builder.Services.AddCors(options =>
 {
+    // add a policy named allowall
     options.AddPolicy("AllowAll", policy =>
     {
+        // allow requests from frontend url
         policy.WithOrigins("http://localhost:8080")
+              // accept any headers in request
               .AllowAnyHeader()
+              // accept any http methods (get, post, etc)
               .AllowAnyMethod();
     });
 });
 
-// Đăng ký dịch vụ PollDbContext kết nối tới SQL Server dựa trên Connection String trong appsettings.json
+// register polldbcontext with sql server database
 builder.Services.AddDbContext<PollDbContext>(options =>
+    // configure to use sql server with connection string from appsettings
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// Đăng ký IHttpClientFactory (dùng để gọi VoteService khi đóng poll)
+// register http client factory for inter-service calls
 builder.Services.AddHttpClient();
 
-// Đăng ký bộ xử lý Controller API
-// Cấu hình JSON: serialize DateTime luôn theo format "R" (RFC1123) hoặc dùng
-// DateTimeZoneHandling để thêm "Z" khi Kind = Utc
-// Cách đơn giản nhất: thay đổi serializer mặc định sang Newtonsoft.Json
+// register controllers service
 builder.Services.AddControllers()
+    // configure json serialization for controller responses
     .AddNewtonsoftJson(options =>
     {
-        // DateTimeZoneHandling.Utc: tất cả DateTime khi serialize đều thêm "Z"
-        // → JS nhận "2026-08-02T06:42:00Z" → parse đúng là UTC → hiển thị đúng giờ local
+        // set datetime zone handling to always include z for utc times
         options.SerializerSettings.DateTimeZoneHandling =
             Newtonsoft.Json.DateTimeZoneHandling.Utc;
     });
 
-// Đăng ký dịch vụ Swagger để tạo giao diện kiểm thử API tự động
+// register endpoint explorer for swagger
 builder.Services.AddEndpointsApiExplorer();
+// register swagger generator
 builder.Services.AddSwaggerGen();
 
+// build the app
 var app = builder.Build();
 
+// use cors middleware with allowall policy
 app.UseCors("AllowAll");
 
-// Cấu hình Middleware Swagger hiển thị trong môi trường Development
+// check if running in development environment
 if (app.Environment.IsDevelopment())
 {
+    // enable swagger ui for api documentation
     app.UseSwagger();
+    // enable swagger ui interface
     app.UseSwaggerUI();
 }
 
+// enable https redirect middleware
 app.UseHttpsRedirection();
+// enable authorization middleware
 app.UseAuthorization();
+// map controller endpoints
 app.MapControllers();
 
+// start the application
 app.Run();

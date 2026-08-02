@@ -1,18 +1,17 @@
 namespace AnalyticsService.Models
 {
-    // Lớp đại diện cho bảng Analytics trong cơ sở dữ liệu AnalyticsDB
     public class Analytics
     {
-        // Khóa chính (Id tự tăng)
+        // auto-incremented primary key from database
         public int Id { get; set; }
 
-        // Mã cuộc bình chọn
+        // poll code that this vote belongs to
         public string PollCode { get; set; } = string.Empty;
 
-        // Mã phương án lựa chọn được vote
+        // id of the option that was voted for
         public int OptionId { get; set; }
 
-        // Thời gian ghi nhận lượt vote
+        // timestamp when the vote was recorded
         public DateTime VoteTime { get; set; } = DateTime.Now;
     }
 }

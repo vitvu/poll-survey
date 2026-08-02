@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.AspNetCore.SignalR;
 using PollService.Data;
 using PollService.Models;
 
@@ -10,132 +9,256 @@ namespace PollService.Controllers
     [ApiController]
     public class PollsController : ControllerBase
     {
-        private readonly PollDbContext _context;
+        // inject database context to access polls and options tables
+        private readonly PollDbContext _databaseContext;
+        // inject http client factory to call other services
         private readonly IHttpClientFactory _httpClientFactory;
 
-        public PollsController(PollDbContext context, IHttpClientFactory httpClientFactory)
+        public PollsController(PollDbContext databaseContext, IHttpClientFactory httpClientFactory)
         {
-            _context = context;
+            // store database context for use in methods
+            _databaseContext = databaseContext;
+            // store http client factory for use in methods
             _httpClientFactory = httpClientFactory;
         }
 
-        // GET /api/polls/code/{code}
         [HttpGet("code/{code}")]
-        public async Task<IActionResult> GetByCode(string code)
+        public async Task<IActionResult> GetPollByCode(string pollCode)
         {
-            var poll = await _context.Polls.Include(p => p.Options)
-                .FirstOrDefaultAsync(p => p.Code == code);
-            return poll == null ? NotFound() : Ok(poll);
+            // query polls table for matching code
+            var pollRecord = await _databaseContext.Polls
+                // include related options for this poll
+                .Include(pollEntity => pollEntity.Options)
+                // find first poll where code matches parameter
+                .FirstOrDefaultAsync(pollEntity => pollEntity.Code == pollCode);
+
+            // check if poll was found
+            if (pollRecord == null)
+                // return 404 if not found
+                return NotFound();
+
+            // return poll data with options
+            return Ok(pollRecord);
         }
 
-        // GET /api/polls/check/{code} — VoteService calls this to validate before saving vote
         [HttpGet("check/{code}")]
-        public async Task<IActionResult> Check(string code)
+        public async Task<IActionResult> ValidatePoll(string pollCode)
         {
-            var poll = await _context.Polls.Include(p => p.Options)
-                .FirstOrDefaultAsync(p => p.Code == code);
+            // query polls table for matching code
+            var pollRecord = await _databaseContext.Polls
+                // include related options for this poll
+                .Include(pollEntity => pollEntity.Options)
+                // find first poll where code matches parameter
+                .FirstOrDefaultAsync(pollEntity => pollEntity.Code == pollCode);
 
-            if (poll == null)            return NotFound(new { message = "Poll does not exist." });
-            if (poll.Status != "Active") return BadRequest(new { message = "Poll is closed." });
+            // check if poll was found
+            if (pollRecord == null)
+                // return 404 if poll does not exist
+                return NotFound(new { message = "Poll does not exist." });
 
-            // Dùng UtcNow để so sánh nhất quán với expireAt được lưu dưới dạng UTC
-            if (poll.ExpireAt <= DateTime.UtcNow) return BadRequest(new { message = "Poll has expired." });
+            // check if poll status is active
+            if (pollRecord.Status != "Active")
+                // return 400 if poll is closed
+                return BadRequest(new { message = "Poll is closed." });
 
-            return Ok(poll);
+            // check if current time is before poll expiration
+            if (pollRecord.ExpireAt <= DateTime.UtcNow)
+                // return 400 if poll has expired
+                return BadRequest(new { message = "Poll has expired." });
+
+            // poll is valid so return it
+            return Ok(pollRecord);
         }
 
-        // GET /api/polls/check-option/{optionId} — VoteService calls this to validate option
         [HttpGet("check-option/{optionId:int}")]
-        public async Task<IActionResult> CheckOption(int optionId)
+        public async Task<IActionResult> ValidateOption(int optionId)
         {
-            var opt = await _context.Options.FindAsync(optionId);
-            return opt == null ? NotFound() : Ok(opt);
+            // query options table by option id
+            var optionRecord = await _databaseContext.Options.FindAsync(optionId);
+
+            // check if option was found
+            if (optionRecord == null)
+                // return 404 if not found
+                return NotFound();
+
+            // return option data
+            return Ok(optionRecord);
         }
 
-        // POST /api/polls — Create new poll
         [HttpPost]
-        public async Task<IActionResult> Create([FromBody] Poll poll)
+        public async Task<IActionResult> CreatePoll([FromBody] Poll pollData)
         {
-            if (string.IsNullOrWhiteSpace(poll.Question))
+            // check if question text is empty
+            if (string.IsNullOrWhiteSpace(pollData.Question))
+                // return 400 if question is empty
                 return BadRequest(new { message = "Question cannot be empty." });
 
-            // Frontend gửi ISO string (UTC), nhưng khi .NET deserialize thành DateTime
-            // thì Kind = Unspecified (không biết là UTC hay local)
-            // → Phải đánh dấu lại là UTC để so sánh đúng với DateTime.UtcNow
-            poll.ExpireAt  = DateTime.SpecifyKind(poll.ExpireAt,  DateTimeKind.Utc);
-            poll.CreatedAt = DateTime.SpecifyKind(poll.CreatedAt, DateTimeKind.Utc);
+            // convert expireat to utc kind since frontend sends iso strings
+            pollData.ExpireAt = DateTime.SpecifyKind(pollData.ExpireAt, DateTimeKind.Utc);
+            // convert createdat to utc kind since frontend sends iso strings
+            pollData.CreatedAt = DateTime.SpecifyKind(pollData.CreatedAt, DateTimeKind.Utc);
 
-            // Dùng UtcNow vì frontend gửi ISO string (UTC)
-            if (poll.ExpireAt <= DateTime.UtcNow)
+            // check if expiration date is in the future
+            if (pollData.ExpireAt <= DateTime.UtcNow)
+                // return 400 if expiration is not in future
                 return BadRequest(new { message = "Expiration date must be in the future." });
 
-            if (await _context.Polls.AnyAsync(p => p.Code == poll.Code))
+            // check if poll code already exists in database
+            bool codeExists = await _databaseContext.Polls
+                // query for any poll with matching code
+                .AnyAsync(existingPoll => existingPoll.Code == pollData.Code);
+            // if code exists return error
+            if (codeExists)
+                // return 400 if code is not unique
                 return BadRequest(new { message = "Code already exists." });
 
-            poll.Options = poll.QuestionType switch
+            // auto-generate options based on question type
+            pollData.Options = pollData.QuestionType switch
             {
-                "Multiple Choice" when poll.Options?.Count >= 2 => poll.Options,
-                "Multiple Choice" => throw new Exception("At least 2 options are required."),
-                "Yes / No" => new List<Option> { new() { Text = "Yes" }, new() { Text = "No" } },
+                // for multiple choice: use provided options if at least 2
+                "Multiple Choice" when pollData.Options?.Count >= 2 => pollData.Options,
+                // for multiple choice without options: throw error
+                "Multiple Choice" => throw new Exception("Multiple Choice requires at least 2 options."),
+                // for yes/no: auto-generate yes and no options
+                "Yes / No" => new List<Option> 
+                { 
+                    // create yes option
+                    new() { Text = "Yes" }, 
+                    // create no option
+                    new() { Text = "No" } 
+                },
+                // for other types: use empty options list
                 _ => new List<Option>()
             };
 
-            poll.CreatedAt = DateTime.UtcNow;  // luôn dùng UtcNow khi tạo mới
-            poll.Status ??= "Active";
+            // set creation timestamp to current utc time
+            pollData.CreatedAt = DateTime.UtcNow;
+            // set default status to active if not provided
+            pollData.Status ??= "Active";
 
-            _context.Polls.Add(poll);
-            await _context.SaveChangesAsync();
+            // add new poll to database context
+            _databaseContext.Polls.Add(pollData);
+            // save all changes to database
+            await _databaseContext.SaveChangesAsync();
 
-            return CreatedAtAction(nameof(GetByCode), new { code = poll.Code }, poll);
+            // return 201 with created poll
+            return CreatedAtAction(nameof(GetPollByCode), new { code = pollData.Code }, pollData);
         }
 
-        // PUT /api/polls/code/{code} — Update poll (mainly to close poll)
         [HttpPut("code/{code}")]
-        public async Task<IActionResult> Update(string code, [FromBody] Poll poll)
+        public async Task<IActionResult> UpdatePoll(string pollCode, [FromBody] Poll pollUpdateData)
         {
-            var existing = await _context.Polls.FirstOrDefaultAsync(p => p.Code == code);
-            if (existing == null) return NotFound();
+            // find existing poll by code
+            var existingPoll = await _databaseContext.Polls
+                // search for poll with matching code
+                .FirstOrDefaultAsync(pollEntity => pollEntity.Code == pollCode);
 
-            var statusChanged = existing.Status != poll.Status;
-            
-            existing.Status   = poll.Status;
-            existing.Question = poll.Question;
-            existing.ExpireAt = poll.ExpireAt;
+            // check if poll was found
+            if (existingPoll == null)
+                // return 404 if poll not found
+                return NotFound();
 
-            await _context.SaveChangesAsync();
+            // check if status is changing
+            bool statusIsChanging = existingPoll.Status != pollUpdateData.Status;
 
-            // Broadcast poll status change via VoteService SignalR Hub
-            if (statusChanged && poll.Status == "Closed")
+            // update poll status
+            existingPoll.Status = pollUpdateData.Status;
+            // update poll question
+            existingPoll.Question = pollUpdateData.Question;
+            // update poll expiration
+            existingPoll.ExpireAt = pollUpdateData.ExpireAt;
+
+            // save changes to database
+            await _databaseContext.SaveChangesAsync();
+
+            // check if poll is being closed
+            if (statusIsChanging && pollUpdateData.Status == "Closed")
             {
-                try
-                {
-                    var client = _httpClientFactory.CreateClient();
-                    var voteServiceUrl = "https://localhost:5002"; // VoteService URL
-                    await client.PostAsJsonAsync($"{voteServiceUrl}/api/votes/broadcast-poll-closed", new { pollCode = existing.Code });
-                }
-                catch (Exception ex)
-                {
-                    // Log error but don't fail the request
-                    Console.WriteLine($"Failed to broadcast poll closed: {ex.Message}");
-                }
+                // notify voteservice that poll is closed
+                await BroadcastPollClosedToVoteService(existingPoll.Code);
             }
 
+            // return 204 no content
             return NoContent();
         }
 
-        // DELETE /api/polls/code/{code} — Delete poll and all associated votes
         [HttpDelete("code/{code}")]
-        public async Task<IActionResult> Delete(string code)
+        public async Task<IActionResult> DeletePoll(string pollCode)
         {
-            var poll = await _context.Polls.Include(p => p.Options)
-                .FirstOrDefaultAsync(p => p.Code == code);
+            // find poll by code including its options
+            var pollToDelete = await _databaseContext.Polls
+                // include related options
+                .Include(pollEntity => pollEntity.Options)
+                // find poll with matching code
+                .FirstOrDefaultAsync(pollEntity => pollEntity.Code == pollCode);
 
-            if (poll == null) return NotFound();
+            // check if poll was found
+            if (pollToDelete == null)
+                // return 404 if poll not found
+                return NotFound();
 
-            _context.Polls.Remove(poll);
-            await _context.SaveChangesAsync();
+            // remove poll from database context
+            _databaseContext.Polls.Remove(pollToDelete);
+            // save changes to database
+            await _databaseContext.SaveChangesAsync();
 
+            // notify voteservice to delete all votes for this poll
+            await DeleteVotesFromVoteService(pollCode);
+
+            // return 204 no content
             return NoContent();
+        }
+
+        private async Task BroadcastPollClosedToVoteService(string pollCode)
+        {
+            // wrap in try-catch to handle network errors
+            try
+            {
+                // create new http client from factory
+                var httpClient = _httpClientFactory.CreateClient();
+                // voteservice url
+                const string voteServiceUrl = "https://localhost:5002";
+                // broadcast endpoint path
+                const string broadcastEndpoint = "/api/votes/broadcast-poll-closed";
+
+                // send post request to voteservice
+                await httpClient.PostAsJsonAsync(
+                    // build full url
+                    $"{voteServiceUrl}{broadcastEndpoint}",
+                    // send poll code in request body
+                    new { pollCode = pollCode }
+                );
+            }
+            catch (Exception exceptionMessage)
+            {
+                // log error message but continue execution
+                Console.WriteLine($"Warning: Failed to broadcast poll closed for {pollCode}: {exceptionMessage.Message}");
+            }
+        }
+
+        private async Task DeleteVotesFromVoteService(string pollCode)
+        {
+            // wrap in try-catch to handle network errors
+            try
+            {
+                // create new http client from factory
+                var httpClient = _httpClientFactory.CreateClient();
+                // voteservice url
+                const string voteServiceUrl = "https://localhost:5002";
+                // delete endpoint path
+                const string deleteVotesEndpoint = "/api/votes/by-poll-code/";
+
+                // send delete request to voteservice
+                await httpClient.DeleteAsync(
+                    // build full url with poll code
+                    $"{voteServiceUrl}{deleteVotesEndpoint}{pollCode}"
+                );
+            }
+            catch (Exception exceptionMessage)
+            {
+                // log error message but continue execution
+                Console.WriteLine($"Warning: Failed to delete votes for poll {pollCode}: {exceptionMessage.Message}");
+            }
         }
     }
 }

@@ -1,15 +1,14 @@
 namespace PollService.Models
 {
-    // Lớp đại diện cho bảng Options trong cơ sở dữ liệu PollDB
     public class Option
     {
-        // Mã định danh duy nhất của phương án lựa chọn (Khóa chính)
+        // auto-incremented primary key from database
         public int Id { get; set; }
 
-        // Khóa ngoại liên kết tới câu hỏi Poll (PollId)
+        // foreign key linking to parent poll
         public int PollId { get; set; }
 
-        // Nội dung hiển thị của phương án lựa chọn (Ví dụ: "Đồng ý", "Không đồng ý")
+        // display text for this option
         public string Text { get; set; } = string.Empty;
     }
 }

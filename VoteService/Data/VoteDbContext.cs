@@ -3,14 +3,16 @@ using VoteService.Models;
 
 namespace VoteService.Data
 {
-    // Lớp quản lý dữ liệu VoteDB bằng Entity Framework Core
     public class VoteDbContext : DbContext
     {
-        public VoteDbContext(DbContextOptions<VoteDbContext> options) : base(options)
+        // constructor receives database options from dependency injection
+        public VoteDbContext(DbContextOptions<VoteDbContext> databaseOptions) 
+            // pass options to parent dbcontext class
+            : base(databaseOptions)
         {
         }
 
-        // Bảng chứa dữ liệu danh sách lượt bình chọn
+        // dbset property maps to the votes table in database
         public DbSet<Vote> Votes { get; set; }
     }
 }

@@ -4,28 +4,26 @@ namespace VoteService.Hubs
 {
     public class VoteHub : Hub
     {
-        /// <summary>
-        /// Client joins the poll room by PollCode to receive real-time updates
-        /// </summary>
+        // joins a poll room to receive real-time vote updates
         public async Task JoinPollRoom(string pollCode)
         {
+            // add this client connection to poll group
             await Groups.AddToGroupAsync(Context.ConnectionId, $"poll_{pollCode}");
+            // send confirmation to client
             await Clients.Caller.SendAsync("JoinedRoom", pollCode);
         }
 
-        /// <summary>
-        /// Client leaves the poll room
-        /// </summary>
+        // leaves a poll room
         public async Task LeavePollRoom(string pollCode)
         {
+            // remove this client connection from poll group
             await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"poll_{pollCode}");
         }
 
-        /// <summary>
-        /// Broadcast new vote to all clients viewing results
-        /// </summary>
+        // broadcasts vote updates to all clients in poll room
         public async Task BroadcastVoteUpdate(string pollCode, object voteData)
         {
+            // send vote updated event to all clients in poll group
             await Clients.Group($"poll_{pollCode}").SendAsync("VoteUpdated", voteData);
         }
     }
