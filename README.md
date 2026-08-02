@@ -1,492 +1,252 @@
-# 📊 Poll Survey — Ứng dụng khảo sát thời gian thực
+# 📊 Poll Survey — Hướng dẫn chi tiết cho người mới
 
-> Tạo và tham gia khảo sát/bình chọn trực tuyến. Không cần đăng ký tài khoản.  
-> Kết quả cập nhật tức thì qua WebSocket (SignalR).  
-> Kiến trúc Microservices: 3 service backend độc lập + 1 API Gateway + 1 Vue.js SPA.
+> **Mục tiêu tài liệu:** Giải thích mọi thứ từ đầu, cho người chưa biết gì về Microservices, SignalR, Docker.  
+> **Tóm tắt dự án:** App tạo poll trực tuyến, không cần đăng ký, kết quả cập nhật realtime qua WebSocket.
 
 ---
 
-## 📋 Mục lục
+## 📑 Nội dung
 
 1. [Tổng quan kiến trúc](#1-tổng-quan-kiến-trúc)
-2. [Ports & URLs](#2-ports--urls)
-3. [Cấu trúc thư mục](#3-cấu-trúc-thư-mục)
-4. [Thư viện & Dependencies](#4-thư-viện--dependencies)
-5. [Database Schema chi tiết](#5-database-schema-chi-tiết)
-6. [API chi tiết từng endpoint](#6-api-chi-tiết-từng-endpoint)
-7. [Ocelot Gateway — Request routing](#7-ocelot-gateway--request-routing)
-8. [Luồng nghiệp vụ chi tiết](#8-luồng-nghiệp-vụ-chi-tiết)
-9. [Realtime với SignalR](#9-realtime-với-signalr)
-10. [Frontend — Giải thích từng file](#10-frontend--giải-thích-từng-file)
-11. [VoterToken — Chống vote 2 lần](#11-votertoken--chống-vote-2-lần)
-12. [Migration files — EF Core](#12-migration-files--ef-core)
-13. [Dockerfile & Containerization](#13-dockerfile--containerization)
-14. [Hướng dẫn chạy dự án](#14-hướng-dẫn-chạy-dự-án)
-15. [Chuyển máy / Deploy sang máy khác](#15-chuyển-máy--deploy-sang-máy-khác)
+2. [Database Schema — Chi tiết từng bảng](#2-database-schema)
+3. [Backend API — Request/Response từng endpoint](#3-backend-api)
+4. [Ocelot Gateway — Routing chi tiết](#4-ocelot-gateway)
+5. [SignalR Realtime — Cách hoạt động](#5-signalr-realtime)
+6. [Frontend — Giải thích từng file](#6-frontend)
+7. [Luồng nghiệp vụ chi tiết](#7-luồng-nghiệp-vụ)
+8. [Migration Files — Tại sao có, tác dụng gì](#8-migration-files)
+9. [Cài đặt Docker — Import/Export](#9-cài-đặt-docker)
+10. [Chuyển code sang máy khác](#10-chuyển-code-sang-máy-khác)
+11. [Các Port và URL](#11-các-port-và-url)
 
 ---
 
 ## 1. Tổng quan kiến trúc
 
-Dự án dùng kiến trúc **Microservices** — mỗi chức năng chính là một service độc lập, có database riêng. Client chỉ nói chuyện với một địa chỉ duy nhất (OcelotGateway), Ocelot tự forward đến đúng service.
+### 1.1 Kiến trúc Microservices là gì?
+
+Thay vì 1 app lớn làm hết mọi việc, ta chia thành nhiều service nhỏ độc lập:
 
 ```
-┌─────────────────────────────────────────────────┐
-│         Vue.js 3 SPA (http://localhost:8080)     │
-│         (dev) hoặc qua Ocelot :5000 (prod)       │
-└──────────────┬──────────────────┬────────────────┘
-               │ HTTP (Axios)     │ WebSocket (SignalR)
-               ▼                  │ trực tiếp đến :5002
-    ┌──────────────────────┐       │
-    │  OcelotGateway :5000 │       │
-    │  API Gateway +        │       │
-    │  Static file server  │       │
-    └──────────┬───────────┘       │
-               │ forward theo URL  │
-        ┌──────┼──────┐            │
-        ▼      ▼      ▼            ▼
-  ┌──────────┐ ┌──────────┐ ┌──────────────────┐
-  │PollSvc   │ │VoteSvc   │ │AnalyticsSvc      │
-  │:5001     │ │:5002     │ │:5003             │
-  │CRUD poll │ │Vote +    │ │Audit log vote    │
-  │& options │ │SignalR   │ │(write-only)      │
-  └────┬─────┘ └────┬─────┘ └────────┬─────────┘
-       │            │                │
-       ▼            ▼                ▼
-   [PollDB]     [VoteDB]       [AnalyticsDB]
-   SQL Server   SQL Server     SQL Server
+┌─────────────────────────────────────────┐
+│  Frontend (Vue.js)                      │
+│  User nhìn thấy + tương tác            │
+└──────────┬──────────────────────────────┘
+           │ HTTP + WebSocket
+           ▼
+┌─────────────────────────────────────────┐
+│  OcelotGateway (API Gateway)            │
+│  Tiếp nhận mọi request, điều hướng     │
+└──────────┬──────────────────────────────┘
+           │ Forward theo URL pattern
+      ┌────┼────┬───────────────────┐
+      ▼         ▼                   ▼
+┌──────────┐ ┌──────────┐  ┌──────────────┐
+│PollSvc   │ │VoteSvc   │  │AnalyticsSvc  │
+│Quản lý   │ │Quản lý   │  │Lưu log       │
+│poll      │ │vote +    │  │vote (audit)  │
+│          │ │realtime  │  │              │
+└────┬─────┘ └────┬─────┘  └────┬─────────┘
+     │            │              │
+     ▼            ▼              ▼
+[PollDB]      [VoteDB]      [AnalyticsDB]
+ SQL Server    SQL Server    SQL Server
 ```
 
-**Quy trình một request:**
-1. Vue gửi `GET https://localhost:5000/api/polls/check/123456` (qua Axios)
-2. OcelotGateway nhận, khớp route `/api/polls/{everything}` → forward đến `https://localhost:5001/api/Polls/check/123456`
-3. PollService truy vấn PollDB, trả JSON
-4. Ocelot trả JSON đó về cho Vue
-5. Vue cập nhật giao diện
+**Lợi ích:**
+- Mỗi service có database riêng, crash 1 service không sập hết
+- Deploy độc lập (sửa PollService không cần restart VoteService)
+- Scale độc lập (nếu vote nhiều, chỉ cần thêm VoteService container)
 
-**Giao tiếp giữa các service (inter-service):**
-- PollService → VoteService: gọi khi đóng poll (broadcast SignalR) hoặc khi xóa poll (xóa votes)
-- VoteService → PollService: validate poll trước khi lưu vote
-- VoteService → AnalyticsService: ghi log sau mỗi vote (fire-and-forget)
 
----
+### 1.2 Request Flow — Request đi từ đâu đến đâu?
 
-## 2. Ports & URLs
-
-| Service | Port | Giao thức | Vai trò |
-|---|---|---|---|
-| OcelotGateway | `5000` | HTTPS | API Gateway + Serve Vue SPA (production) |
-| PollService | `5001` | HTTPS | CRUD Poll & Options |
-| VoteService | `5002` | HTTPS | Submit Vote + SignalR Hub |
-| AnalyticsService | `5003` | HTTP | Audit log thống kê |
-| Vue Dev Server | `8080` | HTTP | Frontend (chỉ khi develop) |
-
-**Các URL quan trọng khi develop:**
-
-| Mục đích | URL |
-|---|---|
-| Trang chủ (dev) | `http://localhost:8080` |
-| Tạo poll | `http://localhost:8080/create` |
-| Vote | `http://localhost:8080/vote/123456` |
-| Xem kết quả | `http://localhost:8080/analytics?code=123456` |
-| Swagger PollService | `https://localhost:5001/swagger` |
-| Swagger VoteService | `https://localhost:5002/swagger` |
-| Swagger AnalyticsService | `https://localhost:5003/swagger` |
-| SignalR Hub (kết nối trực tiếp) | `https://localhost:5002/hubs/vote` |
-
-> SignalR frontend kết nối **trực tiếp đến VoteService `:5002`**, không qua OcelotGateway,  
-> vì Ocelot cần cấu hình phức tạp cho WebSocket và dễ xảy ra vấn đề với long-polling fallback.
-
----
-
-## 3. Cấu trúc thư mục
+**Ví dụ cụ thể:** User muốn xem kết quả poll code `123456`
 
 ```
-poll-survey/
-│
-├── PollSurvey.sln                 ← Solution Visual Studio (gom tất cả project)
-├── BACKEND_FLOW.md                ← Tài liệu kỹ thuật luồng backend
-│
-├── OcelotGateway/                 ← API Gateway, điểm vào duy nhất từ client
-│   ├── Program.cs                 ← Cấu hình CORS, Ocelot, static files, SPA fallback
-│   ├── ocelot.json                ← Bảng routing: URL pattern → service nào, port nào
-│   ├── appsettings.json           ← Logging config
-│   ├── OcelotGateway.csproj       ← Packages: Ocelot, Swagger + copy client vào wwwroot
-│   └── Dockerfile                 ← Container image cho Gateway
-│
-├── PollService/                   ← Quản lý Poll & Options
-│   ├── Controllers/
-│   │   └── PollsController.cs     ← 6 endpoint: GET, POST, PUT, DELETE poll
-│   ├── Models/
-│   │   ├── Poll.cs                ← Entity: Id, Code, Question, QuestionType, Status, ExpireAt, CreatedAt, Options
-│   │   └── Option.cs              ← Entity: Id, PollId (FK), Text
-│   ├── Data/
-│   │   └── PollDbContext.cs       ← EF Core DbContext: DbSet<Poll>, DbSet<Option>
-│   ├── Migrations/                ← EF Core auto-generated migration files
-│   ├── appsettings.json           ← Connection string → PollDB (LocalDB)
-│   ├── Program.cs                 ← CORS, EF Core, Newtonsoft.Json, Swagger
-│   ├── PollService.csproj         ← Packages: EF Core, Newtonsoft.Json, Swagger
-│   └── Dockerfile
-│
-├── VoteService/                   ← Submit Vote + Realtime
-│   ├── Controllers/
-│   │   └── VotesController.cs     ← 6 endpoint: POST vote, GET results, DELETE, broadcast
-│   ├── Hubs/
-│   │   └── VoteHub.cs             ← SignalR Hub: JoinRoom, LeaveRoom, BroadcastVoteUpdate
-│   ├── Models/
-│   │   └── Vote.cs                ← Entity: Id, PollCode, OptionId, VoteValue, VoterToken, CreatedAt
-│   ├── Data/
-│   │   └── VoteDbContext.cs       ← EF Core DbContext: DbSet<Vote>
-│   ├── Migrations/
-│   ├── appsettings.json           ← Connection string → VoteDB + URLs của PollService & AnalyticsService
-│   ├── Program.cs                 ← CORS (AllowCredentials), EF Core, SignalR, HttpClient
-│   ├── VoteService.csproj         ← Packages: EF Core, Swagger
-│   └── Dockerfile
-│
-├── AnalyticsService/              ← Audit log vote (write-only)
-│   ├── Controllers/
-│   │   └── AnalyticsController.cs ← 2 endpoint: POST nhận log, GET summary
-│   ├── Models/
-│   │   └── Analytics.cs           ← Entity: Id, PollCode, OptionId, VoteTime
-│   ├── Data/
-│   │   └── AnalyticsDbContext.cs  ← EF Core DbContext: DbSet<Analytics>
-│   ├── Migrations/
-│   ├── appsettings.json           ← Connection string → AnalyticsDB
-│   ├── Program.cs                 ← CORS, EF Core, Swagger
-│   ├── AnalyticsService.csproj    ← Packages: EF Core, Swagger
-│   └── Dockerfile
-│
-└── client/                        ← Vue.js 3 SPA Frontend
-    ├── src/
-    │   ├── main.js                ← Entry point: tạo app, cài Router, Toast, mount
-    │   ├── App.vue                ← Root component: router-view + fade transition
-    │   ├── api.js                 ← Axios instance + tất cả hàm gọi HTTP
-    │   ├── voterToken.js          ← Tạo/lấy voter token từ localStorage
-    │   ├── usePollHub.js          ← Composable kết nối SignalR realtime
-    │   ├── router/index.js        ← 4 routes + browser title + scroll behavior
-    │   ├── views/
-    │   │   ├── HomeView.vue       ← Trang chủ: nhập code / tạo poll
-    │   │   ├── CreatePollView.vue ← Form tạo poll (4 loại câu hỏi)
-    │   │   ├── VoteView.vue       ← Trang bỏ phiếu (5 trạng thái UI)
-    │   │   └── AnalyticsView.vue  ← Dashboard kết quả realtime (chỉ creator)
-    │   └── assets/main.css        ← Design system: CSS variables, components
-    ├── package.json               ← Dependencies + scripts
-    ├── tailwind.config.js         ← Cấu hình TailwindCSS
-    └── vue.config.js              ← Dev server proxy config
+Bước 1: User mở trang Analytics
+  → Browser chạy: GET /analytics?code=123456
+
+Bước 2: Vue Router nhận URL
+  → Render component AnalyticsView.vue
+
+Bước 3: AnalyticsView gọi API
+  → pollApi.getPollByCode('123456')
+  → Axios gửi: GET https://localhost:5000/api/polls/code/123456
+
+Bước 4: OcelotGateway nhận request
+  → Đọc file ocelot.json, tìm rule: "/api/polls/{everything}"
+  → Forward đến: https://localhost:5001/api/Polls/code/123456
+
+Bước 5: PollService nhận request
+  → PollsController.GetPollByCode('123456')
+  → Query database PollDB: SELECT * FROM Polls WHERE Code='123456'
+  → Kèm JOIN: SELECT * FROM Options WHERE PollId=...
+  → Trả về JSON: { id, code, question, options: [...] }
+
+Bước 6: OcelotGateway trả về cho Vue
+  → Vue nhận JSON → hiển thị tên poll, danh sách options
 ```
 
----
-
-## 4. Thư viện & Dependencies
-
-### 4.1 Backend — NuGet Packages
-
-#### Microsoft.EntityFrameworkCore.SqlServer `8.0.0`
-- **Dùng ở:** PollService, VoteService, AnalyticsService
-- **Tác dụng:** ORM (Object-Relational Mapper) — ánh xạ class C# ↔ bảng SQL Server. Thay vì viết SQL thủ công, dùng LINQ: `_db.Polls.Where(p => p.Code == code).FirstOrDefaultAsync()` → EF Core tự sinh câu SQL.
-- **Vì sao dùng:** .NET 8 chuẩn, tích hợp sẵn dependency injection, hỗ trợ migrations tự động tạo/cập nhật schema DB.
-- **Cài:** Đã có trong `.csproj`, restore tự động bằng `dotnet restore`.
-
-#### Microsoft.EntityFrameworkCore.Design `8.0.0`
-- **Dùng ở:** Cả 3 service
-- **Tác dụng:** Package hỗ trợ thiết kế, **chỉ dùng khi generate migration** (`dotnet ef migrations add`), không cần ở runtime. `PrivateAssets=all` để không bị đóng gói vào output.
-- **Vì sao dùng:** Bắt buộc để chạy lệnh `dotnet ef`.
-
-#### Microsoft.EntityFrameworkCore.Tools `8.0.0`
-- **Dùng ở:** Cả 3 service
-- **Tác dụng:** CLI tools cho EF Core — cho phép chạy `dotnet ef database update`, `dotnet ef migrations add` từ terminal.
-- **Vì sao dùng:** Quản lý schema DB bằng code (code-first migrations), không cần tay tạo bảng trong SQL.
-
-#### Swashbuckle.AspNetCore `6.6.2` (Swagger)
-- **Dùng ở:** PollService, VoteService, AnalyticsService, OcelotGateway
-- **Tác dụng:** Tự động generate trang Swagger UI tại `/swagger` — cho phép test API ngay trên trình duyệt mà không cần Postman. Scan tất cả `[HttpGet]`, `[HttpPost]`... trong Controllers và tạo documentation tương tác.
-- **Vì sao dùng:** Dễ test và debug API trong quá trình phát triển.
-- **Chỉ bật khi Development:** `if (app.Environment.IsDevelopment()) { app.UseSwagger(); app.UseSwaggerUI(); }`
-
-#### Microsoft.AspNetCore.Mvc.NewtonsoftJson `8.0.0`
-- **Dùng ở:** PollService (và PollService **chỉ mình PollService** dùng)
-- **Tác dụng:** Thay thế serializer JSON mặc định của ASP.NET Core (`System.Text.Json`) bằng `Newtonsoft.Json` (Json.NET). Lý do cụ thể: cấu hình `DateTimeZoneHandling.Utc` để mọi DateTime trong JSON response tự động thêm suffix `Z` (chỉ rõ UTC timezone).
-- **Vì sao cần:** `System.Text.Json` mặc định serialize `DateTime` không có `Z` → frontend nhận về như `"2026-08-02T07:00:00"` → JavaScript không biết timezone → có thể lệch giờ. Với Newtonsoft và `DateTimeZoneHandling.Utc` → output là `"2026-08-02T07:00:00Z"` → JS `new Date("...Z")` parse chuẩn UTC rồi hiển thị giờ local tự động.
-- **Cài đặt trong `Program.cs`:**
-  ```csharp
-  builder.Services.AddControllers()
-      .AddNewtonsoftJson(options => {
-          options.SerializerSettings.DateTimeZoneHandling =
-              Newtonsoft.Json.DateTimeZoneHandling.Utc;
-      });
-  ```
-
-#### Ocelot `23.3.3`
-- **Dùng ở:** OcelotGateway
-- **Tác dụng:** API Gateway — nhận tất cả request từ client, đọc `ocelot.json` để biết URL nào cần forward đến service nào. Hoạt động như reverse proxy.
-- **Vì sao dùng:** Client chỉ cần biết 1 địa chỉ (`localhost:5000`), không biết có bao nhiêu service backend. Dễ thêm/bớt/thay đổi service mà không cần sửa client.
-- **Đăng ký:** `builder.Services.AddOcelot()` + `await app.UseOcelot()`
-
-#### Microsoft.VisualStudio.Azure.Containers.Tools.Targets `1.22.1`
-- **Dùng ở:** Cả 4 service
-- **Tác dụng:** Hỗ trợ debug container trong Visual Studio (Container Tools). Cho phép F5 debug trực tiếp trong Docker container từ IDE.
-- **Vì sao dùng:** Tiện cho development với Docker, không ảnh hưởng production build.
+**3 loại communication:**
+1. **User → Backend:** HTTP qua Axios (GET, POST, PUT, DELETE)
+2. **Service → Service:** HTTP qua HttpClient (C#)
+3. **Backend → User realtime:** WebSocket qua SignalR
 
 ---
 
-### 4.2 Frontend — npm Packages
+## 2. Database Schema
 
-#### vue `^3.2.13`
-- **Tác dụng:** Framework UI chính. Vue 3 dùng Composition API (`<script setup>`, `ref()`, `onMounted()`) — code gọn hơn Options API của Vue 2. Mọi component `.vue` đều dùng Vue.
-- **Vì sao dùng:** Reactive — khi dữ liệu thay đổi, Vue tự cập nhật DOM mà không cần `document.getElementById`. Cú pháp template `v-if`, `v-for`, `v-model` rõ ràng.
-- **Cài:** `npm install vue@^3.2.13`
+Có 3 database hoàn toàn độc lập (mỗi service quản lý 1 database).  
+**Nguyên tắc Microservices:** Service không được truy cập database của service khác.
 
-#### vue-router `^4.6.4`
-- **Tác dụng:** Quản lý điều hướng trong SPA. Map URL → component mà không reload trang. Hỗ trợ route params (`/vote/:code`), query string (`/analytics?code=xxx`), navigation guards (đổi title tab).
-- **Vì sao dùng:** App có 4 trang khác nhau, cần điều hướng mà không mất state hay reload toàn bộ app.
-- **Dùng trong code:** `useRouter()` để chuyển trang (`router.push('/vote/123')`), `useRoute()` để đọc URL (`route.params.code`, `route.query.code`).
-- **Cài:** `npm install vue-router@^4.6.4`
-
-#### axios `^1.19.0`
-- **Tác dụng:** HTTP client gửi request lên server. Tiện hơn `fetch` native: hỗ trợ interceptors (bắt lỗi tập trung), auto-parse JSON, timeout, base URL. File `api.js` tạo 1 instance Axios với `baseURL: 'https://localhost:5000'` → mọi request đều tự gắn prefix này.
-- **Vì sao dùng:** Interceptor error giúp chuẩn hóa error message từ backend thành `Error` object có `.message` → component chỉ cần `catch(e) → e.message`.
-- **Cài:** `npm install axios@^1.19.0`
-
-#### @microsoft/signalr `^10.0.0`
-- **Tác dụng:** Client-side SignalR library. Tạo kết nối WebSocket đến `VoteHub` để nhận events realtime (`VoteUpdated`, `PollClosed`). Tự động thử WebSocket trước, fallback về Server-Sent Events rồi Long Polling nếu WebSocket không dùng được.
-- **Vì sao dùng:** Khi có người vote, server cần chủ động push dữ liệu mới đến tất cả dashboard đang mở — HTTP thông thường không làm được điều này.
-- **Dùng trong code:** `new signalR.HubConnectionBuilder().withUrl(...).withAutomaticReconnect([0,1000,3000,5000]).build()`
-- **Cài:** `npm install @microsoft/signalr@^10.0.0`
-
-#### vue-toastification `^2.0.0-rc.5`
-- **Tác dụng:** Hiển thị thông báo "toast" (hộp nhỏ góc màn hình, tự biến mất sau vài giây). Có 3 loại: `toast.success()` (xanh), `toast.error()` (đỏ), `toast.info()` (xanh nhạt).
-- **Vì sao dùng:** UX — feedback ngay cho user sau mỗi action (tạo poll thành công, copy link, xóa poll...) mà không cần alert() hay reload trang.
-- **Cài:** `npm install vue-toastification@^2.0.0-rc.5`
-- **Import CSS bắt buộc:** `import 'vue-toastification/dist/index.css'` trong `main.js`
-- **Cấu hình trong `main.js`:**
-  ```js
-  app.use(Toast, {
-    position: 'bottom-right',
-    timeout: 2500,
-    closeOnClick: true,
-    pauseOnHover: true,
-    draggable: false,
-    hideProgressBar: true,
-    closeButton: false,
-  })
-  ```
-
-#### qrcode `^1.5.4`
-- **Tác dụng:** Vẽ mã QR lên phần tử `<canvas>` HTML. Nhận URL cần encode và kích thước → tạo ảnh QR bitmap ngay trong trình duyệt, không cần server.
-- **Vì sao dùng:** Cho phép creator chia sẻ poll bằng cách scan QR thay vì gõ code.
-- **Dùng trong code:** `await QRCode.toCanvas(canvasElement, shareLink(), { width: 320, margin: 2, color: {...} })`
-- **Cài:** `npm install qrcode@^1.5.4`
-
-#### @lucide/vue `^1.28.0`
-- **Tác dụng:** Bộ icon SVG dạng Vue component. Import từng icon cần dùng: `import { Check, Trash2, Star } from '@lucide/vue'` rồi dùng như component `<Trash2 :size="16" />`. Mỗi icon là SVG inline → scale không bị mờ, có thể đổi màu bằng CSS.
-- **Vì sao dùng:** Nhẹ hơn icon font (Font Awesome), tree-shakeable (chỉ bundle icon nào dùng), style thống nhất.
-- **Cài:** `npm install @lucide/vue@^1.28.0`
-
-#### tailwindcss `^3.4.19`
-- **Tác dụng:** CSS utility framework — thay vì viết CSS file riêng, dùng class trực tiếp trong template: `class="flex items-center gap-2 text-[14px] font-bold"`. Build tool scan tất cả file, chỉ giữ lại class nào thực sự dùng → file CSS cuối cùng rất nhỏ.
-- **Vì sao dùng:** Tốc độ phát triển nhanh, không cần đặt tên class. Tuy nhiên app này còn dùng thêm CSS variables (trong `main.css`) cho design system (`--blue`, `--text`, `--border`...).
-- **Cài:** `npm install -D tailwindcss@^3.4.19 autoprefixer@^10.5.4 postcss@^8.5.25`
-- **Cấu hình `tailwind.config.js`:** Khai báo `content` để Tailwind scan đúng file:
-  ```js
-  module.exports = { content: ['./src/**/*.{vue,js,ts}'] }
-  ```
-
----
-
-## 5. Database Schema chi tiết
-
-Có 3 database độc lập (mỗi service quản lý database của mình — nguyên tắc "database per service" trong microservices). Các service **không truy cập chéo database của nhau**, chỉ giao tiếp qua HTTP API.
-
----
-
-### 5.1 PollDB (PollService)
+### 2.1 PollDB (PollService quản lý)
 
 #### Bảng `Polls`
 
-```
-Polls
-├── Id          int          NOT NULL  PRIMARY KEY  IDENTITY(1,1)
-├── Code        nvarchar(max) NOT NULL              -- "482931" (6 chữ số)
-├── Question    nvarchar(max) NOT NULL              -- nội dung câu hỏi
-├── QuestionType nvarchar(max) NOT NULL             -- "Multiple Choice" / "Yes / No" / "Rating" / "Open Text"
-├── Status      nvarchar(max) NOT NULL              -- "Active" / "Closed"
-├── ExpireAt    datetime2    NOT NULL               -- thời điểm hết hạn (UTC)
-└── CreatedAt   datetime2    NOT NULL               -- thời điểm tạo (UTC)
-```
+Lưu thông tin câu hỏi khảo sát.
+
+| Cột | Kiểu | Bắt buộc | Mô tả | Ví dụ |
+|-----|------|----------|-------|-------|
+| `Id` | int | PK, IDENTITY | ID tự động tăng | 1, 2, 3... |
+| `Code` | nvarchar(max) | NOT NULL | Mã phòng 6 chữ số | "123456" |
+| `Question` | nvarchar(max) | NOT NULL | Nội dung câu hỏi | "Best framework?" |
+| `QuestionType` | nvarchar(max) | NOT NULL | Loại câu hỏi | "Multiple Choice" |
+| `Status` | nvarchar(max) | NOT NULL | Trạng thái | "Active" hoặc "Closed" |
+| `ExpireAt` | datetime2 | NOT NULL | Thời điểm hết hạn | "2026-08-10T12:00:00Z" |
+| `CreatedAt` | datetime2 | NOT NULL | Thời điểm tạo | "2026-08-02T06:00:00Z" |
+
+**Các giá trị `QuestionType`:**
+- `"Multiple Choice"` — Chọn 1 trong nhiều option
+- `"Yes / No"` — Chọn Yes hoặc No
+- `"Rating"` — Chọn 1-5 sao
+- `"Open Text"` — Trả lời tự do
+
+**Các giá trị `Status`:**
+- `"Active"` — Đang nhận vote
+- `"Closed"` — Đã đóng, không nhận vote nữa
+
 
 #### Bảng `Options`
 
-```
-Options
-├── Id      int           NOT NULL  PRIMARY KEY  IDENTITY(1,1)
-├── PollId  int           NOT NULL  FOREIGN KEY → Polls.Id  ON DELETE CASCADE
-└── Text    nvarchar(max) NOT NULL              -- "Vue.js", "React", "Yes", "No"
-```
+Lưu các lựa chọn của câu hỏi Multiple Choice hoặc Yes/No.
 
-**Index:** `IX_Options_PollId` trên cột `PollId` — tăng tốc query `WHERE PollId = ?`.
+| Cột | Kiểu | Mô tả | Ví dụ |
+|-----|------|-------|-------|
+| `Id` | int | PK, IDENTITY | 1, 2, 3... |
+| `PollId` | int | FK → Polls.Id, ON DELETE CASCADE | 1 |
+| `Text` | nvarchar(max) | Nội dung option | "Vue.js" |
 
-**Cascade Delete:** Xóa một Poll → tất cả Option của Poll đó tự động bị xóa theo. Không cần xóa thủ công.
-
-**Liên kết `Poll ↔ Option`:**
+**Quan hệ 1-nhiều:**
 ```
-Poll (Id=1, Code="482931", Question="Best framework?")
+Poll (Id=1, Code="123456", Question="Best framework?")
   ├── Option (Id=1, PollId=1, Text="Vue.js")
   ├── Option (Id=2, PollId=1, Text="React")
   └── Option (Id=3, PollId=1, Text="Angular")
 ```
-Trong EF Core, `Poll.cs` có `public List<Option> Options { get; set; }` — khi query dùng `.Include(p => p.Options)`, EF Core tự JOIN bảng Options để lấy kèm.
 
-**Lưu ý về các loại câu hỏi và Options:**
-- `Multiple Choice` → Options = danh sách người tạo nhập (ít nhất 2)
-- `Yes / No` → Backend tự tạo 2 Option `"Yes"` và `"No"` (frontend không cần gửi)
-- `Rating` → Không có Option nào trong bảng Options
-- `Open Text` → Không có Option nào trong bảng Options
+**CASCADE DELETE nghĩa là gì?**
+Khi xóa Poll có Id=1 → SQL Server tự động xóa tất cả Option có PollId=1.  
+Không cần code xóa thủ công.
 
----
+**Lưu ý:**
+- Poll loại `"Rating"` và `"Open Text"` không có Option nào trong bảng này
+- Poll loại `"Yes / No"` → Backend tự tạo 2 Option: "Yes" và "No"
 
-### 5.2 VoteDB (VoteService)
+#### Index
+
+EF Core tự tạo index `IX_Options_PollId` trên cột `PollId` để tăng tốc truy vấn:
+```sql
+SELECT * FROM Options WHERE PollId = 1
+```
+
+### 2.2 VoteDB (VoteService quản lý)
 
 #### Bảng `Votes`
 
-```
-Votes
-├── Id          int           NOT NULL  PRIMARY KEY  IDENTITY(1,1)
-├── PollCode    nvarchar(max) NOT NULL              -- "482931" (ref đến Poll, không dùng FK)
-├── OptionId    int           NOT NULL              -- ID option được chọn; 0 nếu Rating/OpenText
-├── VoteValue   nvarchar(max) NOT NULL              -- "4" (sao), "Tôi thích Vue" (text), "" (MC/YN)
-├── VoterToken  nvarchar(max) NOT NULL              -- "voter_47291038" từ localStorage
-└── CreatedAt   datetime2    NOT NULL               -- thời điểm vote
-```
+Lưu mỗi phiếu bầu.
 
-**Không có Foreign Key đến PollDB** — đây là thiết kế có chủ đích trong microservices (loose coupling). VoteService chỉ lưu `PollCode` dạng chuỗi, validate poll bằng cách gọi HTTP sang PollService thay vì JOIN DB.
+| Cột | Kiểu | Mô tả | Ví dụ |
+|-----|------|-------|-------|
+| `Id` | int | PK, IDENTITY | 1, 2, 3... |
+| `PollCode` | nvarchar(max) | Mã poll (không dùng FK) | "123456" |
+| `OptionId` | int | ID option được chọn | 2 (hoặc 0 nếu Rating/Text) |
+| `VoteValue` | nvarchar(max) | Giá trị vote (Rating/Text) | "4" hoặc "Tôi thích Vue" |
+| `VoterToken` | nvarchar(max) | Token định danh voter | "voter_47291038" |
+| `CreatedAt` | datetime2 | Thời điểm vote | "2026-08-02T07:00:00" |
 
-**Chống vote 2 lần:** Query `AnyAsync(v => v.PollCode == X && v.VoterToken == Y)` trước khi lưu vote mới.
+**Tại sao không dùng Foreign Key đến PollDB?**
+
+Trong Microservices, mỗi service có database riêng. Nếu dùng FK:
+```sql
+-- Cái này KHÔNG ĐƯỢC vì Polls table ở database khác
+ALTER TABLE Votes ADD CONSTRAINT FK_Votes_Polls 
+  FOREIGN KEY (PollId) REFERENCES Polls(Id)
+```
+SQL Server không cho phép FK cross-database. Thay vào đó, VoteService validate bằng cách gọi HTTP sang PollService.
 
 **Mapping loại câu hỏi ↔ dữ liệu lưu:**
 
-| Loại câu hỏi | OptionId | VoteValue | Ý nghĩa |
-|---|---|---|---|
-| Multiple Choice | ID option (vd: 2) | `""` | Đã chọn option số 2 |
-| Yes / No | ID option Yes hoặc No | `""` | Đã chọn Yes hoặc No |
-| Rating | `0` | `"4"` | Chọn 4 sao |
-| Open Text | `0` | `"Tôi thích Vue"` | Câu trả lời tự do |
+| Question Type | OptionId | VoteValue | Giải thích |
+|---------------|----------|-----------|------------|
+| Multiple Choice | 2 | `""` | Đã chọn option Id=2 |
+| Yes / No | 1 | `""` | Đã chọn Yes (hoặc No) |
+| Rating | 0 | `"4"` | Đã chọn 4 sao |
+| Open Text | 0 | `"Vue tốt hơn"` | Câu trả lời tự do |
 
----
+**Chống vote 2 lần:**
 
-### 5.3 AnalyticsDB (AnalyticsService)
+Trước khi lưu vote, VoteService query:
+```sql
+SELECT * FROM Votes 
+WHERE PollCode='123456' AND VoterToken='voter_47291038'
+```
+Nếu tìm thấy → trả lỗi `400 "You have already voted."`
+
+
+### 2.3 AnalyticsDB (AnalyticsService quản lý)
 
 #### Bảng `Analytics`
 
-```
-Analytics
-├── Id        int           NOT NULL  PRIMARY KEY  IDENTITY(1,1)
-├── PollCode  nvarchar(max) NOT NULL              -- "482931"
-├── OptionId  int           NOT NULL              -- option được chọn (để thống kê)
-└── VoteTime  datetime2    NOT NULL               -- thời điểm ghi nhận
-```
+Audit log — lưu vết mọi lần vote (write-only, không đọc realtime).
 
-**Vai trò:** Write-only audit log — VoteService ghi vào sau mỗi vote (fire-and-forget). AnalyticsService không đọc hay xóa dữ liệu theo thời gian thực. Hiện tại frontend không đọc trực tiếp bảng này, nhưng endpoint `GET /api/analytics/summary/{code}` có thể dùng mở rộng sau.
+| Cột | Kiểu | Mô tả | Ví dụ |
+|-----|------|-------|-------|
+| `Id` | int | PK, IDENTITY | 1, 2, 3... |
+| `PollCode` | nvarchar(max) | Mã poll | "123456" |
+| `OptionId` | int | Option được chọn | 2 |
+| `VoteTime` | datetime2 | Thời điểm ghi log | "2026-08-02T07:05:00" |
 
-**Tại sao tách riêng thay vì đọc VoteDB?** Microservices — AnalyticsService có thể được thay thế bằng tool thống kê khác (Kafka, Elasticsearch...) mà không ảnh hưởng VoteService.
+**Tác dụng:**
+1. **Audit log:** Lưu vết mọi hành động vote (ai vote, khi nào, option gì)
+2. **Phân tích sau:** Có thể export để xây dashboard thống kê nâng cao
+3. **Backup:** Nếu VoteDB bị lỗi, vẫn có log trong AnalyticsDB
+
+**Có thể bỏ không?**
+
+✅ **CÓ** — VoteService gửi log qua HTTP nhưng dùng `fire-and-forget` (không chờ response):
+```csharp
+_ = SendVoteAnalyticsAsync(...);  // Dấu _ = không await
+```
+Nếu AnalyticsService down, vote vẫn được lưu trong VoteDB bình thường.
+
+**Khi nào cần giữ lại:**
+- Yêu cầu audit log (pháp lý, kiểm toán)
+- Cần phân tích xu hướng vote theo thời gian
+- Backup dữ liệu
 
 ---
 
-## 6. API chi tiết từng endpoint
+## 3. Backend API
 
-### 6.1 PollService — `/api/Polls`
+### 3.1 PollService — `/api/Polls`
 
----
-
-#### `GET /api/polls/code/{code}`
-
-Lấy thông tin đầy đủ của poll kèm danh sách options.
-
-**Dùng ở:** AnalyticsView khi mở trang (cần options để map tên hiển thị với kết quả vote).
-
-**Request:**
-```
-GET /api/polls/code/482931
-```
-
-**Xử lý backend:**
-1. Query `Polls` table với `.Include(p => p.Options)` để lấy kèm Options
-2. Nếu không tìm thấy → trả 404
-
-**Response thành công `200 OK`:**
-```json
-{
-  "id": 1,
-  "code": "482931",
-  "question": "Best JavaScript framework?",
-  "questionType": "Multiple Choice",
-  "status": "Active",
-  "expireAt": "2026-08-10T12:00:00Z",
-  "createdAt": "2026-08-02T06:30:00Z",
-  "options": [
-    { "id": 1, "pollId": 1, "text": "Vue.js" },
-    { "id": 2, "pollId": 1, "text": "React" },
-    { "id": 3, "pollId": 1, "text": "Angular" }
-  ]
-}
-```
-
-**Response thất bại:**
-- `404 Not Found` — poll code không tồn tại trong DB
-
----
-
-#### `GET /api/polls/check/{code}`
-
-Validate poll: còn tồn tại, còn Active, chưa hết hạn. Nhẹ hơn endpoint trên vì chỉ validate.
-
-**Dùng ở:**
-- HomeView khi nhập code để join
-- VoteView khi load trang
-- VoteService khi validate trước khi lưu vote (inter-service call)
-
-**Request:**
-```
-GET /api/polls/check/482931
-```
-
-**Xử lý backend:**
-1. Query poll theo code (có `.Include(p => p.Options)`)
-2. Nếu không tìm thấy → 404
-3. Nếu `status != "Active"` → 400
-4. Nếu `expireAt <= DateTime.UtcNow` → 400
-5. Nếu hợp lệ → 200 kèm data poll
-
-**Response thành công `200 OK`:** (Cùng format với endpoint trên, kèm options)
-
-**Response thất bại:**
-- `404 Not Found` — `{ "message": "Poll does not exist." }`
-- `400 Bad Request` — `{ "message": "Poll is closed." }` — poll đã bị đóng tay
-- `400 Bad Request` — `{ "message": "Poll has expired." }` — quá thời hạn `expireAt`
-
----
-
-#### `GET /api/polls/check-option/{optionId}`
-
-Validate một option có tồn tại không.
-
-**Dùng ở:** Hiện tại VoteService có thể gọi để verify option trước khi lưu vote (tùy implementation).
-
-**Request:** `GET /api/polls/check-option/3`
-
-**Response:**
-- `200 OK` — `{ "id": 3, "pollId": 1, "text": "Angular" }`
-- `404 Not Found` — option không tồn tại
-
----
-
-#### `POST /api/polls`
-
-Tạo poll mới.
+#### `POST /api/polls` — Tạo poll mới
 
 **Request Body:**
 ```json
 {
-  "code": "482931",
+  "code": "123456",
   "question": "Best JavaScript framework?",
   "questionType": "Multiple Choice",
   "expireAt": "2026-08-10T12:00:00Z",
@@ -497,42 +257,141 @@ Tạo poll mới.
 }
 ```
 
-**Xử lý backend chi tiết:**
-1. Validate `question` không rỗng → nếu rỗng: `400 "Question cannot be empty."`
-2. `DateTime.SpecifyKind(pollData.ExpireAt, DateTimeKind.Utc)` — đánh dấu lại là UTC (frontend gửi ISO string nhưng C# deserialize thành `Unspecified` kind)
-3. Validate `expireAt > DateTime.UtcNow` → nếu không: `400 "Expiration date must be in the future."`
-4. Kiểm tra code chưa tồn tại trong DB → nếu đã có: `400 "Code already exists."`
-5. Tự sinh Options theo `questionType`:
-   - `"Multiple Choice"` và `options.Count >= 2` → dùng options từ request
-   - `"Multiple Choice"` nhưng `options.Count < 2` → `Exception`
-   - `"Yes / No"` → bỏ qua options gửi lên, tạo `[{Text:"Yes"}, {Text:"No"}]`
-   - `"Rating"` hoặc `"Open Text"` → `options = []`
-6. Set `createdAt = DateTime.UtcNow`, `status = "Active"` (nếu không gửi)
-7. `_db.Polls.Add(pollData)` + `SaveChangesAsync()` → EF Core INSERT vào Polls + Options
+**Xử lý backend (step-by-step):**
+
+```
+1. Validate question không rỗng
+   → Nếu rỗng: 400 "Question cannot be empty."
+
+2. Đánh dấu expireAt là UTC
+   DateTime.SpecifyKind(pollData.ExpireAt, DateTimeKind.Utc)
+   Vì sao? C# deserialize JSON thành DateTime kind "Unspecified"
+   → Phải chỉ rõ là UTC để lưu đúng vào SQL Server
+
+3. Validate expireAt > DateTime.UtcNow
+   → Nếu không: 400 "Expiration date must be in the future."
+
+4. Kiểm tra code chưa tồn tại
+   SELECT * FROM Polls WHERE Code='123456'
+   → Nếu có: 400 "Code already exists."
+
+5. Sinh Options theo questionType:
+   - "Multiple Choice" → dùng options từ request (phải >= 2)
+   - "Yes / No" → bỏ qua options request, tạo [{Text:"Yes"}, {Text:"No"}]
+   - "Rating" / "Open Text" → options = []
+
+6. Set createdAt = DateTime.UtcNow, status = "Active"
+
+7. INSERT vào database
+   _db.Polls.Add(pollData)
+   await _db.SaveChangesAsync()
+   → EF Core tự sinh Id cho Poll và Options
+
+8. Trả về 201 Created + Location header
+```
 
 **Response thành công `201 Created`:**
+```json
+{
+  "id": 1,
+  "code": "123456",
+  "question": "Best JavaScript framework?",
+  "questionType": "Multiple Choice",
+  "status": "Active",
+  "expireAt": "2026-08-10T12:00:00Z",
+  "createdAt": "2026-08-02T06:30:00Z",
+  "options": [
+    { "id": 1, "pollId": 1, "text": "Vue.js" },
+    { "id": 2, "pollId": 1, "text": "React" }
+  ]
+}
 ```
-Location: /api/Polls/code/482931
-Body: object poll đầy đủ kèm options với Id được gán từ DB
-```
+**Header:** `Location: /api/Polls/code/123456`
 
 **Response thất bại:**
 - `400 Bad Request` — `{ "message": "Question cannot be empty." }`
 - `400 Bad Request` — `{ "message": "Expiration date must be in the future." }`
-- `400 Bad Request` — `{ "message": "Code already exists." }` — trùng code (hiếm, random 6 số)
-- `500 Server Error` — nếu Multiple Choice gửi < 2 options (Exception chưa handled)
+- `400 Bad Request` — `{ "message": "Code already exists." }`
 
----
 
-#### `PUT /api/polls/code/{code}`
+#### `GET /api/polls/code/{code}` — Lấy thông tin poll đầy đủ
 
-Cập nhật poll — chủ yếu để đóng poll (`status: "Closed"`).
+**Dùng ở đâu:** AnalyticsView cần lấy danh sách options để map với kết quả vote.
 
-**Request Body:**
+**Request:** `GET /api/polls/code/123456`
+
+**Xử lý backend:**
+```csharp
+var poll = await _db.Polls
+    .Include(p => p.Options)  // JOIN với bảng Options
+    .FirstOrDefaultAsync(p => p.Code == code);
+
+if (poll == null)
+    return NotFound();
+
+return Ok(poll);
+```
+
+**Response `200 OK`:**
 ```json
 {
   "id": 1,
-  "code": "482931",
+  "code": "123456",
+  "question": "Best JavaScript framework?",
+  "questionType": "Multiple Choice",
+  "status": "Active",
+  "expireAt": "2026-08-10T12:00:00Z",
+  "createdAt": "2026-08-02T06:30:00Z",
+  "options": [
+    { "id": 1, "pollId": 1, "text": "Vue.js" },
+    { "id": 2, "pollId": 1, "text": "React" }
+  ]
+}
+```
+
+**Response `404 Not Found`:** Poll không tồn tại.
+
+---
+
+#### `GET /api/polls/check/{code}` — Validate poll còn hoạt động
+
+**Dùng ở đâu:**
+- HomeView: User nhập code → kiểm tra poll tồn tại trước khi chuyển sang VoteView
+- VoteView: Khi load trang → validate poll còn Active
+- VoteService: Trước khi lưu vote → gọi HTTP sang endpoint này
+
+**Request:** `GET /api/polls/check/123456`
+
+**Xử lý backend:**
+```
+1. Query poll kèm options (giống endpoint trên)
+2. Nếu không tìm thấy → 404 "Poll does not exist."
+3. Nếu status != "Active" → 400 "Poll is closed."
+4. Nếu expireAt <= DateTime.UtcNow → 400 "Poll has expired."
+5. Nếu hợp lệ → 200 OK kèm data poll
+```
+
+**Response thành công `200 OK`:** (cùng format với endpoint trên)
+
+**Response thất bại:**
+- `404 Not Found` — `{ "message": "Poll does not exist." }`
+- `400 Bad Request` — `{ "message": "Poll is closed." }` (status="Closed")
+- `400 Bad Request` — `{ "message": "Poll has expired." }` (quá expireAt)
+
+---
+
+#### `PUT /api/polls/code/{code}` — Cập nhật poll (chủ yếu để đóng)
+
+**Dùng ở đâu:** AnalyticsView khi creator bấm nút "Close Poll".
+
+**Request:**
+```http
+PUT /api/polls/code/123456
+Content-Type: application/json
+
+{
+  "id": 1,
+  "code": "123456",
   "question": "Best JavaScript framework?",
   "questionType": "Multiple Choice",
   "status": "Closed",
@@ -542,123 +401,219 @@ Cập nhật poll — chủ yếu để đóng poll (`status: "Closed"`).
 ```
 
 **Xử lý backend:**
+```
 1. Tìm poll theo code → 404 nếu không có
-2. Kiểm tra `existingPoll.Status != pollUpdateData.Status` → nếu status thay đổi, đánh dấu `statusIsChanging = true`
-3. Cập nhật `Status`, `Question`, `ExpireAt`
-4. `SaveChangesAsync()`
-5. Nếu `statusIsChanging && newStatus == "Closed"` → gọi HTTP POST đến VoteService: `POST /api/votes/broadcast-poll-closed`
-   - VoteService phát SignalR `"PollClosed"` đến tất cả client đang ở group `poll_482931`
-   - VoteView nhận event → hiện banner đỏ "This poll has ended"
-   - AnalyticsView nhận event → badge đổi sang "Closed"
-   - Nếu VoteService không phản hồi → bắt Exception, log warning, tiếp tục (không fail request)
 
-**Response thành công:** `204 No Content`
+2. Kiểm tra status thay đổi không
+   bool statusChanged = (existingPoll.Status != newPoll.Status)
 
-**Response thất bại:**
-- `404 Not Found` — poll không tìm thấy
+3. Cập nhật Status, Question, ExpireAt
+   existingPoll.Status = newPoll.Status
+   await _db.SaveChangesAsync()
 
----
+4. Nếu statusChanged && newStatus == "Closed"
+   → Gọi HTTP đến VoteService:
+     POST /api/votes/broadcast-poll-closed
+     Body: { "pollCode": "123456" }
 
-#### `DELETE /api/polls/code/{code}`
+   VoteService nhận → phát SignalR "PollClosed" đến tất cả client trong group
 
-Xóa poll vĩnh viễn và tất cả liên quan.
+5. Trả về 204 No Content
+```
+
+**Điều gì xảy ra khi đóng poll?**
+1. PollDB: `Status` đổi từ "Active" → "Closed"
+2. VoteService phát SignalR → mọi client đang mở VoteView/AnalyticsView nhận event
+3. VoteView: Hiện banner đỏ "This poll has ended", disable form vote
+4. AnalyticsView: Badge status đổi thành "Closed"
+5. Vote mới gửi lên → PollService trả 400 "Poll is closed"
+
+**Response thành công:** `204 No Content`  
+**Response thất bại:** `404 Not Found` — poll không tồn tại
+
+
+#### `DELETE /api/polls/code/{code}` — Xóa poll vĩnh viễn
+
+**Dùng ở đâu:** AnalyticsView khi creator bấm nút "Delete Poll".
+
+**Request:** `DELETE /api/polls/code/123456`
 
 **Xử lý backend:**
-1. Tìm poll (kèm `.Include(p => p.Options)`) → 404 nếu không có
-2. `_db.Polls.Remove(poll)` + `SaveChangesAsync()` → EF Core DELETE Polls + Options cascade
-3. Gọi HTTP DELETE đến VoteService: `DELETE /api/votes/by-poll-code/482931`
-   - VoteService xóa tất cả Vote có `PollCode = "482931"` trong VoteDB
-   - Nếu VoteService không phản hồi → bắt Exception, log warning, tiếp tục
+```
+1. Tìm poll kèm options
+   var poll = await _db.Polls
+       .Include(p => p.Options)
+       .FirstOrDefaultAsync(p => p.Code == code);
+
+2. Nếu không tìm thấy → 404
+
+3. Xóa poll (cascade sẽ xóa luôn options)
+   _db.Polls.Remove(poll)
+   await _db.SaveChangesAsync()
+
+4. Gọi HTTP đến VoteService xóa votes:
+   DELETE /api/votes/by-poll-code/123456
+   → VoteService xóa tất cả Vote có PollCode="123456" trong VoteDB
+
+5. Trả về 204 No Content
+```
 
 **Những gì bị xóa:**
-- Bảng `Polls`: xóa row poll
-- Bảng `Options` (PollDB): xóa tất cả options của poll (cascade)
-- Bảng `Votes` (VoteDB): xóa tất cả votes của poll (qua HTTP call)
-- Bảng `Analytics` (AnalyticsDB): **KHÔNG xóa** (audit log giữ lại)
-- `localStorage['createdPolls']`: frontend xóa code khỏi mảng sau khi API thành công
+| Database | Bảng | Hành động |
+|----------|------|-----------|
+| PollDB | `Polls` | Xóa row poll |
+| PollDB | `Options` | Xóa tất cả options (CASCADE) |
+| VoteDB | `Votes` | Xóa tất cả votes (qua HTTP call) |
+| AnalyticsDB | `Analytics` | **KHÔNG xóa** (audit log giữ lại) |
+| Frontend | `localStorage['createdPolls']` | Frontend xóa code khỏi mảng |
 
-**Response thành công:** `204 No Content`
+**Tại sao AnalyticsDB không xóa?**
 
-**Response thất bại:**
-- `404 Not Found` — poll không tìm thấy
+Audit log giữ vĩnh viễn để kiểm toán. Nếu cần xóa, phải vào SQL Server xóa thủ công.
+
+**Response thành công:** `204 No Content`  
+**Response thất bại:** `404 Not Found`
 
 ---
 
-### 6.2 VoteService — `/api/Votes`
+### 3.2 VoteService — `/api/Votes`
 
----
+#### `POST /api/votes` — Submit phiếu bầu (endpoint phức tạp nhất)
 
-#### `POST /api/votes`
-
-Submit phiếu bầu — endpoint phức tạp nhất, giao tiếp với 2 service khác + SignalR.
+**Dùng ở đâu:** VoteView khi user bấm "Submit Vote".
 
 **Request Body:**
 ```json
 {
-  "pollCode": "482931",
+  "pollCode": "123456",
   "voterToken": "voter_47291038",
   "optionId": 2,
   "voteValue": ""
 }
 ```
 
-**Xử lý backend step-by-step:**
+**Xử lý backend (chi tiết từng bước):**
 
 ```
-Bước 1 — Validate đầu vào
-  pollCode rỗng? → 400 "Missing required data."
-  voterToken rỗng? → 400 "Missing required data."
+──────────────────────────────────────────────
+BƯỚC 1: Validate đầu vào
+──────────────────────────────────────────────
+if (string.IsNullOrWhiteSpace(voteData.PollCode))
+    return BadRequest(new { message = "Missing required data." });
 
-Bước 2 — Chống vote 2 lần
-  Query: SELECT * FROM Votes WHERE PollCode='482931' AND VoterToken='voter_47291038'
-  Tìm thấy? → 400 "You have already voted."
+if (string.IsNullOrWhiteSpace(voteData.VoterToken))
+    return BadRequest(new { message = "Missing required data." });
 
-Bước 3 — Validate poll còn hợp lệ
-  HTTP GET https://localhost:5001/api/Polls/check/482931
-  PollService trả non-2xx? → 400 "Poll is invalid or has been closed."
-  (Poll không tồn tại / đã Closed / quá ExpireAt đều trả non-2xx)
+──────────────────────────────────────────────
+BƯỚC 2: Chống vote 2 lần
+──────────────────────────────────────────────
+bool alreadyVoted = await _db.Votes.AnyAsync(v =>
+    v.PollCode == voteData.PollCode &&
+    v.VoterToken == voteData.VoterToken
+);
 
-Bước 4 — Lưu vote
-  voteData.CreatedAt = DateTime.Now
-  INSERT INTO Votes VALUES (...)
+if (alreadyVoted)
+    return BadRequest(new { message = "You have already voted." });
 
-Bước 5 — Tính kết quả mới
-  SELECT OptionId, COUNT(*) FROM Votes
-  WHERE PollCode='482931'
-  GROUP BY OptionId
-  → allVotesForThisPoll = [{optionId:1, voteCount:3}, {optionId:2, voteCount:5}]
-  totalVotes = 8
+──────────────────────────────────────────────
+BƯỚC 3: Validate poll còn nhận vote không
+──────────────────────────────────────────────
+// Gọi HTTP sang PollService
+var pollServiceUrl = _config["Services:PollServiceUrl"]; // "https://localhost:5001"
+var response = await httpClient.GetAsync($"{pollServiceUrl}/api/Polls/check/{voteData.PollCode}");
 
-Bước 6 — Broadcast SignalR
-  _signalRHubContext.Clients.Group("poll_482931")
-    .SendAsync("VoteUpdated", { pollCode, totalVotes:8, voteResults:[...] })
-  → Tất cả AnalyticsView đang mở poll 482931 nhận ngay
+if (!response.IsSuccessStatusCode)
+    return BadRequest(new { message = "Poll is invalid or has been closed." });
 
-Bước 7 — Fire & forget Analytics
-  _ = SendVoteAnalyticsAsync(...)
-  POST https://localhost:5003/api/Analytics {pollCode, optionId, voteTime}
-  (Không await → không ảnh hưởng response dù Analytics bị lỗi)
+// PollService trả về 200 OK → poll hợp lệ
+// PollService trả về 400/404 → poll không hợp lệ (đóng/hết hạn/không tồn tại)
 
-Bước 8 — Trả kết quả
-  200 OK: { "message": "Vote submitted successfully!" }
+──────────────────────────────────────────────
+BƯỚC 4: Lưu vote vào VoteDB
+──────────────────────────────────────────────
+voteData.CreatedAt = DateTime.Now;
+_db.Votes.Add(voteData);
+await _db.SaveChangesAsync();
+
+──────────────────────────────────────────────
+BƯỚC 5: Tính kết quả mới (để broadcast)
+──────────────────────────────────────────────
+var voteResults = await _db.Votes
+    .Where(v => v.PollCode == voteData.PollCode)
+    .GroupBy(v => v.OptionId)
+    .Select(g => new {
+        optionId = g.Key,
+        voteCount = g.Count()
+    })
+    .ToListAsync();
+
+int totalVotes = voteResults.Sum(r => r.voteCount);
+
+──────────────────────────────────────────────
+BƯỚC 6: Broadcast SignalR realtime
+──────────────────────────────────────────────
+await _hubContext.Clients
+    .Group($"poll_{voteData.PollCode}")
+    .SendAsync("VoteUpdated", new {
+        pollCode = voteData.PollCode,
+        totalVotes = totalVotes,
+        voteResults = voteResults
+    });
+
+// Tất cả AnalyticsView đang mở poll này nhận event ngay lập tức
+
+──────────────────────────────────────────────
+BƯỚC 7: Fire-and-forget Analytics (không chờ)
+──────────────────────────────────────────────
+_ = SendVoteAnalyticsAsync(httpClient, voteData);
+
+// Hàm SendVoteAnalyticsAsync():
+//   POST https://localhost:5003/api/Analytics
+//   Body: { pollCode, optionId, voteTime }
+//   Bọc trong try-catch, nếu lỗi chỉ log warning, không làm fail request
+
+──────────────────────────────────────────────
+BƯỚC 8: Trả về thành công
+──────────────────────────────────────────────
+return Ok(new { message = "Vote submitted successfully!" });
+```
+
+**Response thành công `200 OK`:**
+```json
+{ "message": "Vote submitted successfully!" }
 ```
 
 **Response thất bại:**
-- `400 Bad Request` — `{ "message": "Missing required data." }` — thiếu pollCode hoặc voterToken
-- `400 Bad Request` — `{ "message": "You have already voted." }` — token này đã vote poll này rồi
-- `400 Bad Request` — `{ "message": "Poll is invalid or has been closed." }` — poll không còn nhận vote
+- `400 Bad Request` — `{ "message": "Missing required data." }`
+- `400 Bad Request` — `{ "message": "You have already voted." }`
+- `400 Bad Request` — `{ "message": "Poll is invalid or has been closed." }`
 
----
 
-#### `GET /api/votes/result/{pollCode}`
+#### `GET /api/votes/result/{pollCode}` — Lấy kết quả nhóm theo option
 
-Lấy kết quả nhóm theo option (dùng cho Multiple Choice / Yes-No bar chart).
+**Dùng ở đâu:** AnalyticsView để vẽ bar chart (Multiple Choice, Yes/No).
+
+**Request:** `GET /api/votes/result/123456`
 
 **Xử lý backend:**
+```csharp
+var results = await _db.Votes
+    .Where(v => v.PollCode == pollCode)
+    .GroupBy(v => v.OptionId)
+    .Select(g => new {
+        optionId = g.Key,
+        voteCount = g.Count()
+    })
+    .ToListAsync();
+
+return Ok(results);
+```
+
+**SQL tương đương:**
 ```sql
 SELECT OptionId, COUNT(*) as voteCount
 FROM Votes
-WHERE PollCode = '482931'
+WHERE PollCode = '123456'
 GROUP BY OptionId
 ```
 
@@ -666,1277 +621,2789 @@ GROUP BY OptionId
 ```json
 [
   { "optionId": 1, "voteCount": 3 },
-  { "optionId": 2, "voteCount": 5 }
+  { "optionId": 2, "voteCount": 5 },
+  { "optionId": 3, "voteCount": 2 }
 ]
 ```
-> Chú ý: backend trả `voteCount`, frontend dùng field này dưới tên `count` sau khi map
+
+**Frontend dùng như nào?**
+```js
+// AnalyticsView map optionId với tên option từ poll.options
+const chartData = voteResults.map(r => ({
+  name: poll.options.find(o => o.id === r.optionId)?.text,
+  count: r.voteCount
+}))
+```
 
 ---
 
-#### `GET /api/votes/total/{pollCode}`
+#### `GET /api/votes/total/{pollCode}` — Lấy tổng số phiếu
 
-Lấy tổng số phiếu bầu.
+**Dùng ở đâu:** AnalyticsView hiển thị stat card "Total Votes".
+
+**Request:** `GET /api/votes/total/123456`
+
+**Xử lý backend:**
+```csharp
+int total = await _db.Votes.CountAsync(v => v.PollCode == pollCode);
+return Ok(new { pollCode, totalVotes = total });
+```
 
 **Response `200 OK`:**
 ```json
-{ "pollCode": "482931", "totalVotes": 8 }
+{ "pollCode": "123456", "totalVotes": 10 }
 ```
 
 ---
 
-#### `GET /api/votes/list/{pollCode}`
+#### `GET /api/votes/list/{pollCode}` — Lấy danh sách từng phiếu
 
-Lấy từng phiếu bầu (dùng cho Rating và Open Text).
+**Dùng ở đâu:** AnalyticsView để hiển thị:
+- **Rating:** Từng sao (để tính trung bình)
+- **Open Text:** Từng câu trả lời
+
+**Request:** `GET /api/votes/list/123456`
 
 **Xử lý backend:**
-```sql
-SELECT OptionId, VoteValue, CreatedAt
-FROM Votes
-WHERE PollCode = '482931'
-ORDER BY CreatedAt DESC
+```csharp
+var votes = await _db.Votes
+    .Where(v => v.PollCode == pollCode)
+    .OrderByDescending(v => v.CreatedAt)
+    .Select(v => new {
+        optionId = v.OptionId,
+        voteValue = v.VoteValue,
+        createdAt = v.CreatedAt
+    })
+    .ToListAsync();
+
+return Ok(votes);
 ```
 
-**Response `200 OK`:**
+**Response `200 OK` (Rating):**
 ```json
 [
   { "optionId": 0, "voteValue": "5", "createdAt": "2026-08-02T07:05:00" },
-  { "optionId": 0, "voteValue": "3", "createdAt": "2026-08-02T07:03:00" }
+  { "optionId": 0, "voteValue": "4", "createdAt": "2026-08-02T07:03:00" },
+  { "optionId": 0, "voteValue": "3", "createdAt": "2026-08-02T07:01:00" }
 ]
 ```
-Frontend dùng `voteValue` để render sao (Rating) hoặc text (Open Text).
 
----
-
-#### `DELETE /api/votes/by-poll-code/{pollCode}`
-
-Xóa tất cả votes của một poll — được gọi bởi PollService khi xóa poll (inter-service).
-
-**Xử lý:**
-1. Query tất cả Votes có `PollCode = X`
-2. `RemoveRange(votes)` + `SaveChangesAsync()`
-3. `204 No Content`
-
----
-
-#### `POST /api/votes/broadcast-poll-closed`
-
-Nhận lệnh từ PollService, phát SignalR event "PollClosed".
-
-**Request Body:** `{ "pollCode": "482931" }`
-
-**Xử lý:**
-```
-pollCode rỗng? → 400
-_signalRHubContext.Clients.Group("poll_482931")
-  .SendAsync("PollClosed", { pollCode: "482931", status: "Closed" })
-→ 200 { "message": "Broadcast sent." }
+**Response `200 OK` (Open Text):**
+```json
+[
+  { "optionId": 0, "voteValue": "Vue is amazing", "createdAt": "2026-08-02T07:05:00" },
+  { "optionId": 0, "voteValue": "I prefer React", "createdAt": "2026-08-02T07:03:00" }
+]
 ```
 
-**Kết quả phía client khi nhận event này:**
-- VoteView: ẩn form vote, hiện banner đỏ "This poll has ended"
-- AnalyticsView: badge trạng thái đổi thành "Closed" (đỏ)
+**Frontend dùng như nào?**
+```js
+// Rating: tính trung bình
+const avg = votes.reduce((sum, v) => sum + parseInt(v.voteValue), 0) / votes.length
+
+// Open Text: hiển thị list
+votes.forEach(v => {
+  console.log(v.voteValue) // "Vue is amazing"
+})
+```
 
 ---
 
-### 6.3 AnalyticsService — `/api/Analytics`
+#### `DELETE /api/votes/by-poll-code/{pollCode}` — Xóa tất cả votes
+
+**Dùng ở đâu:** PollService gọi qua HTTP khi xóa poll (inter-service call).
+
+**Request:** `DELETE /api/votes/by-poll-code/123456`
+
+**Xử lý backend:**
+```csharp
+var votes = await _db.Votes
+    .Where(v => v.PollCode == pollCode)
+    .ToListAsync();
+
+_db.Votes.RemoveRange(votes);
+await _db.SaveChangesAsync();
+
+return NoContent();
+```
+
+**Response:** `204 No Content`
 
 ---
 
-#### `POST /api/analytics`
+#### `POST /api/votes/broadcast-poll-closed` — Phát SignalR "Poll Closed"
 
-Nhận log vote từ VoteService và lưu vào AnalyticsDB.
+**Dùng ở đâu:** PollService gọi qua HTTP khi đóng poll.
+
+**Request Body:**
+```json
+{ "pollCode": "123456" }
+```
+
+**Xử lý backend:**
+```csharp
+if (string.IsNullOrWhiteSpace(request.PollCode))
+    return BadRequest(new { message = "PollCode is required." });
+
+await _hubContext.Clients
+    .Group($"poll_{request.PollCode}")
+    .SendAsync("PollClosed", new {
+        pollCode = request.PollCode,
+        status = "Closed"
+    });
+
+return Ok(new { message = "Broadcast sent." });
+```
+
+**Response:** `200 OK`
+
+**Frontend nhận event:**
+```js
+// VoteView.vue
+hubConnection.on('PollClosed', data => {
+  showClosedBanner.value = true
+  disableForm()
+})
+
+// AnalyticsView.vue
+hubConnection.on('PollClosed', data => {
+  poll.value.status = 'Closed'
+})
+```
+
+---
+
+### 3.3 AnalyticsService — `/api/Analytics`
+
+#### `POST /api/analytics` — Ghi log vote (write-only)
+
+**Dùng ở đâu:** VoteService gọi sau mỗi vote (fire-and-forget).
 
 **Request Body:**
 ```json
 {
-  "pollCode": "482931",
+  "pollCode": "123456",
   "optionId": 2,
-  "voteTime": "2026-08-02T07:05:00"
+  "voteTime": "2026-08-02T07:05:00Z"
 }
 ```
 
-**Xử lý:**
-1. Nếu `voteTime == default(DateTime)` (không được gửi) → set = `DateTime.Now`
-2. INSERT vào `Analytics` table
-3. `200 OK`
+**Xử lý backend:**
+```csharp
+if (record.VoteTime == default(DateTime))
+    record.VoteTime = DateTime.Now;
 
-> Endpoint này được VoteService gọi theo kiểu **fire-and-forget** (không await). Nếu AnalyticsService bị lỗi hay offline, vote vẫn được lưu bình thường trong VoteDB.
+_db.Analytics.Add(record);
+await _db.SaveChangesAsync();
+
+return Ok();
+```
+
+**Response:** `200 OK`
+
+**Lưu ý:** Endpoint này **không được frontend gọi trực tiếp**. Chỉ VoteService gọi.
 
 ---
 
-#### `GET /api/analytics/summary/{pollCode}`
+#### `GET /api/analytics/summary/{pollCode}` — Thống kê tổng hợp
 
-Trả về tổng quan thống kê của poll.
+**Dùng ở đâu:** Hiện tại frontend không dùng (dành cho mở rộng sau).
 
-**Xử lý:**
+**Request:** `GET /api/analytics/summary/123456`
+
+**Xử lý backend:**
 ```csharp
 var records = await _db.Analytics
-    .Where(r => r.PollCode == pollCode)
+    .Where(a => a.PollCode == pollCode)
     .ToListAsync();
 
-var topOptionId = records
-    .GroupBy(r => r.OptionId)
+var mostVoted = records
+    .GroupBy(a => a.OptionId)
     .OrderByDescending(g => g.Count())
     .Select(g => g.Key)
     .FirstOrDefault();
+
+return Ok(new {
+    totalVotes = records.Count,
+    mostVotedOptionId = mostVoted
+});
 ```
 
 **Response `200 OK`:**
 ```json
 {
-  "totalVotes": 8,
+  "totalVotes": 10,
   "mostVotedOptionId": 2
 }
 ```
 
-> Frontend hiện tại không gọi endpoint này. Dữ liệu Analytics là audit log phục vụ mở rộng sau (vẽ chart theo thời gian, xuất báo cáo...).
+**Khác gì với VoteService?**
+
+VoteService đọc từ `Votes` table (dữ liệu chính).  
+AnalyticsService đọc từ `Analytics` table (audit log).  
+Nếu cần so sánh 2 nguồn để phát hiện lỗi → dùng endpoint này.
+
 
 ---
 
-## 7. Ocelot Gateway — Request routing
+## 4. Ocelot Gateway
 
-OcelotGateway là "cổng vào" duy nhất từ client. File `ocelot.json` định nghĩa bảng routing — mỗi entry là một "Route" gồm `UpstreamPathTemplate` (URL client gọi vào) và `DownstreamPathTemplate` (URL Ocelot forward đến).
+### 4.1 Ocelot là gì?
 
-### Cách Ocelot xử lý một request
+**API Gateway** — điểm vào duy nhất cho frontend. Frontend chỉ biết địa chỉ Gateway, không cần biết có bao nhiêu service backend.
+
+**Vai trò:**
+1. **Reverse Proxy:** Nhận request từ client, forward đến đúng service
+2. **Routing:** Đọc URL pattern để biết forward đến đâu
+3. **Static File Server:** Serve file Vue build (production)
+4. **CORS:** Cấu hình CORS tập trung
+
+### 4.2 File cấu hình — `ocelot.json`
+
+**Development (local):**
+```json
+{
+  "GlobalConfiguration": {
+    "BaseUrl": "https://localhost:5000"
+  },
+  "Routes": [
+    {
+      "UpstreamPathTemplate": "/api/polls/{everything}",
+      "UpstreamHttpMethod": ["GET", "POST", "PUT", "DELETE"],
+      "DownstreamPathTemplate": "/api/Polls/{everything}",
+      "DownstreamScheme": "https",
+      "DownstreamHostAndPorts": [
+        { "Host": "localhost", "Port": 5001 }
+      ]
+    },
+    {
+      "UpstreamPathTemplate": "/api/votes/{everything}",
+      "UpstreamHttpMethod": ["GET", "POST", "DELETE"],
+      "DownstreamPathTemplate": "/api/Votes/{everything}",
+      "DownstreamScheme": "https",
+      "DownstreamHostAndPorts": [
+        { "Host": "localhost", "Port": 5002 }
+      ]
+    }
+  ]
+}
+```
+
+**Giải thích từng trường:**
+
+| Trường | Ý nghĩa | Ví dụ |
+|--------|---------|-------|
+| `UpstreamPathTemplate` | URL pattern mà Gateway nhận | `/api/polls/{everything}` |
+| `{everything}` | Placeholder bắt phần còn lại của URL | `/api/polls/check/123` → `{everything}` = `check/123` |
+| `UpstreamHttpMethod` | HTTP method cho phép | `["GET", "POST"]` |
+| `DownstreamPathTemplate` | URL forward đến service | `/api/Polls/{everything}` |
+| `DownstreamScheme` | Giao thức | `https` hoặc `http` |
+| `DownstreamHostAndPorts` | Địa chỉ service backend | `localhost:5001` |
+
+### 4.3 Ví dụ routing chi tiết
+
+#### Request 1: Tạo poll
 
 ```
-Client: GET https://localhost:5000/api/polls/check/482931
-   │
-   ▼
-OcelotGateway nhận request
-   │
-   ▼
-Duyệt qua danh sách Routes trong ocelot.json:
-  Route 1: /api/polls/{everything} → match! ("{everything}" = "check/482931")
-   │
-   ▼
-Tạo request mới:
-  GET https://localhost:5001/api/Polls/check/482931
-  (DownstreamScheme: https, DownstreamHostAndPorts: localhost:5001)
-   │
-   ▼
-Gửi request đến PollService, chờ response
-   │
-   ▼
-Nhận response từ PollService → trả nguyên về client
-(Transparent proxy — client không biết request đã đi qua đâu)
+┌───────────────────────────────────────────────────────────────┐
+│ Frontend (Vue)                                                │
+├───────────────────────────────────────────────────────────────┤
+│ pollApi.createPoll({...})                                     │
+│ → axios.post('https://localhost:5000/api/polls', body)        │
+└───────────┬───────────────────────────────────────────────────┘
+            │ HTTP POST
+            ▼
+┌───────────────────────────────────────────────────────────────┐
+│ OcelotGateway :5000                                           │
+├───────────────────────────────────────────────────────────────┤
+│ 1. Nhận request: POST /api/polls                              │
+│ 2. Tìm route khớp: "/api/polls/{everything}"                 │
+│    → {everything} = "" (không có gì sau /polls)              │
+│ 3. Downstream: POST https://localhost:5001/api/Polls          │
+└───────────┬───────────────────────────────────────────────────┘
+            │ Forward
+            ▼
+┌───────────────────────────────────────────────────────────────┐
+│ PollService :5001                                             │
+├───────────────────────────────────────────────────────────────┤
+│ PollsController.CreatePoll() nhận body                        │
+│ → Xử lý → INSERT vào PollDB                                   │
+│ → Trả về: 201 Created + JSON poll                            │
+└───────────┬───────────────────────────────────────────────────┘
+            │ Response
+            ▼
+┌───────────────────────────────────────────────────────────────┐
+│ OcelotGateway                                                 │
+├───────────────────────────────────────────────────────────────┤
+│ Nhận response từ PollService → trả nguyên về Frontend        │
+└───────────┬───────────────────────────────────────────────────┘
+            │
+            ▼
+┌───────────────────────────────────────────────────────────────┐
+│ Frontend                                                      │
+├───────────────────────────────────────────────────────────────┤
+│ Nhận 201 Created → hiển thị toast → chuyển sang Analytics    │
+└───────────────────────────────────────────────────────────────┘
 ```
 
-### Bảng routing chi tiết
+#### Request 2: Submit vote
 
-| # | Upstream (client gọi vào :5000) | Methods | Downstream (Ocelot forward đến) |
-|---|---|---|---|
-| 1 | `/api/polls/{everything}` | GET, POST, PUT, DELETE | `localhost:5001/api/Polls/{everything}` |
-| 2 | `/api/polls` | GET, POST | `localhost:5001/api/Polls` |
-| 3 | `/api/votes/{everything}` | GET, POST, DELETE | `localhost:5002/api/Votes/{everything}` |
-| 4 | `/api/votes` | POST | `localhost:5002/api/Votes` |
-| 5 | `/api/analytics/{everything}` | GET, POST | `localhost:5003/api/Analytics/{everything}` |
-| 6 | `/hubs/vote` | GET, POST, OPTIONS | `localhost:5002/hubs/vote` |
+```
+Frontend: POST /api/votes
+   → OcelotGateway: Khớp route "/api/votes/{everything}"
+   → Forward: POST https://localhost:5002/api/Votes
+   → VoteService: VotesController.SubmitVote()
+   → Trả về: 200 OK
+```
 
-**Lưu ý Route #6:** `/hubs/vote` là endpoint SignalR. Ocelot có route này nhưng **frontend không dùng Ocelot để kết nối SignalR**. Frontend kết nối trực tiếp `https://localhost:5002/hubs/vote`. Route này để lại phòng khi cần dùng qua Gateway trong tương lai.
+#### Request 3: Lấy kết quả
 
-**Uppercase/Lowercase:** Upstream template dùng `/api/polls` (lowercase), Downstream dùng `/api/Polls` (uppercase P) — đây là convention của ASP.NET Core (tên controller `PollsController` → route `/api/Polls`).
+```
+Frontend: GET /api/votes/result/123456
+   → OcelotGateway: Khớp "/api/votes/{everything}"
+      {everything} = "result/123456"
+   → Forward: GET https://localhost:5002/api/Votes/result/123456
+   → VoteService: VotesController.GetVoteResults("123456")
+   → Trả về: 200 OK + JSON array
+```
 
-### OcelotGateway kiêm static file server
+### 4.4 Docker Compose — `ocelot.Production.json`
 
-Ngoài routing API, OcelotGateway còn serve Vue.js frontend:
+Khi chạy trong Docker, hostname thay đổi (không còn `localhost`):
+
+```json
+{
+  "GlobalConfiguration": {
+    "BaseUrl": "http://gateway:8080"
+  },
+  "Routes": [
+    {
+      "UpstreamPathTemplate": "/api/polls/{everything}",
+      "DownstreamPathTemplate": "/api/Polls/{everything}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        { "Host": "poll-service", "Port": 8080 }
+      ]
+    }
+  ]
+}
+```
+
+**Sự khác biệt:**
+
+| Môi trường | Hostname | Port | Scheme |
+|------------|----------|------|--------|
+| Development | `localhost` | 5001, 5002, 5003 | `https` |
+| Docker | `poll-service`, `vote-service` | 8080 | `http` |
+
+**Vì sao HTTP trong Docker?**
+
+Các container nói chuyện qua internal network, không cần HTTPS (đã an toàn).  
+HTTPS chỉ cần ở cổng ra ngoài (user → gateway).
+
+### 4.5 Program.cs — Load config theo environment
 
 ```csharp
-// Program.cs của OcelotGateway
-app.UseDefaultFiles();          // /  → tìm index.html trong wwwroot
-app.UseStaticFiles();           // /js/app.js, /css/... → serve file trong wwwroot
-app.MapFallbackToFile("index.html"); // /vote/123, /analytics → trả index.html
-                                     // (SPA routing: Vue Router xử lý URL)
-await app.UseOcelot();          // /api/... → forward đến service
+builder.Configuration.AddJsonFile("ocelot.json", optional: false, reloadOnChange: true);
+builder.Configuration.AddJsonFile($"ocelot.{builder.Environment.EnvironmentName}.json", 
+    optional: true, reloadOnChange: true);
 ```
 
-**SPA Fallback quan trọng:** Khi user gõ `https://localhost:5000/vote/482931` vào browser (hoặc F5 khi đang ở trang đó), server nhận request `/vote/482931` — không phải `/api/...` nên không khớp route Ocelot, không phải file tĩnh nên `UseStaticFiles` không handle. `MapFallbackToFile("index.html")` đảm bảo trả về `index.html` → Vue app load → Vue Router đọc URL → hiển thị VoteView.
+**Cách hoạt động:**
+1. Load `ocelot.json` (base config)
+2. Nếu `ASPNETCORE_ENVIRONMENT=Production` → load `ocelot.Production.json` đè lên
+3. Production config ghi đè hostname + port
 
-**Build Production:** Vue build output (trong `client/dist/`) được copy vào `OcelotGateway/wwwroot/` thông qua cấu hình `.csproj`:
-```xml
-<Content Include="..\client\**" CopyToOutputDirectory="PreserveNewest">
-  <Link>wwwroot\%(RecursiveDir)%(Filename)%(Extension)</Link>
-</Content>
-```
-→ Chạy `dotnet publish OcelotGateway` → tất cả trong 1 folder, deploy 1 service.
 
 ---
 
-## 8. Luồng nghiệp vụ chi tiết
+## 5. SignalR Realtime
 
-### 8.1 Tạo Poll — 4 loại câu hỏi
+### 5.1 SignalR là gì?
 
-**Frontend (CreatePollView.vue):**
+**SignalR** là thư viện Microsoft để làm **realtime communication** (server push dữ liệu cho client mà client không cần hỏi).
 
-1. User nhập câu hỏi, chọn loại, chọn thời hạn, nhập options (nếu là MC)
-2. Bấm "Create Poll":
-   - Validate: question không rỗng, MC phải có ≥ 2 options có nội dung
-   - Tạo `roomCode = Math.floor(100000 + Math.random() * 900000).toString()` (ví dụ: `"482931"`)
-   - Nếu "No Limit": `expireAt = new Date(); expireAt.setFullYear(expireAt.getFullYear() + 100)` (100 năm sau)
-   - Nếu "Set Deadline": convert datetime-local string (giờ local) sang UTC ISO: `new Date(localString).toISOString()`
-   - Gọi `POST /api/polls`
-3. Thành công → lưu `code` vào `localStorage['createdPolls']` → chuyển sang `/analytics?code=482931`
-4. Thất bại → hiện toast error
+**So sánh với HTTP thường:**
 
-**Dữ liệu được lưu vào DB:**
+| HTTP thông thường | SignalR |
+|-------------------|---------|
+| Client hỏi → Server trả lời | Client kết nối 1 lần, Server chủ động push |
+| Polling: Client hỏi mỗi 3s "Có gì mới không?" | Server tự push khi có dữ liệu mới |
+| Tốn bandwidth, chậm | Tiết kiệm, realtime ngay lập tức |
 
-Với `Multiple Choice` — "Best framework?", options: Vue.js, React, Angular:
-```
-Polls: (Id=1, Code="482931", Question="Best framework?", QuestionType="Multiple Choice",
-        Status="Active", ExpireAt="2126-08-02T...", CreatedAt="2026-08-02T06:30:00Z")
-Options: (Id=1, PollId=1, Text="Vue.js")
-         (Id=2, PollId=1, Text="React")
-         (Id=3, PollId=1, Text="Angular")
-```
+**Công nghệ đằng sau:**
+1. **WebSocket** (ưu tiên nhất) — kết nối 2 chiều, full-duplex
+2. **Server-Sent Events** (fallback) — chỉ server → client
+3. **Long Polling** (fallback cuối) — HTTP kéo dài
 
-Với `Yes / No` — "Do you like Vue?":
-```
-Polls: (Id=2, Code="193847", Question="Do you like Vue?", QuestionType="Yes / No", ...)
-Options: (Id=4, PollId=2, Text="Yes")   ← backend tự tạo
-         (Id=5, PollId=2, Text="No")    ← backend tự tạo
-```
+SignalR tự động chọn công nghệ phù hợp với trình duyệt.
 
-Với `Rating` — "Rate this presentation":
-```
-Polls: (Id=3, Code="857291", Question="Rate this presentation", QuestionType="Rating", ...)
-Options: (không có gì)
-```
+### 5.2 VoteHub.cs — SignalR Hub (Backend)
 
-Với `Open Text` — "Any suggestions?":
-```
-Polls: (Id=4, Code="374819", Question="Any suggestions?", QuestionType="Open Text", ...)
-Options: (không có gì)
-```
-
----
-
-### 8.2 Vote — cả 4 loại
-
-**Frontend (VoteView.vue):**
-
-1. Load trang `/vote/482931`:
-   - `GET /api/polls/check/482931` — nếu lỗi → "Poll Not Found"
-   - Check `localStorage['voted_482931'] === 'true'` → nếu đúng: "Already Voted"
-   - Poll hợp lệ, chưa vote → hiện form
-
-2. User điền câu trả lời:
-   - Multiple Choice / Yes-No: bấm chọn 1 option → `selectedOptionId = option.id`
-   - Rating: bấm sao số N → `voteValue = "N"` (chuỗi)
-   - Open Text: gõ vào textarea → `voteValue = "nội dung"`
-
-3. Bấm "Submit Vote":
-   - Validate: phải chọn/nhập gì đó → `hasSubmitError = true` nếu chưa
-   - Gọi `POST /api/votes`:
-     ```json
-     Multiple Choice: { pollCode:"482931", voterToken:"voter_47291038", optionId:2, voteValue:"" }
-     Yes / No:        { pollCode:"193847", voterToken:"voter_47291038", optionId:5, voteValue:"" }
-     Rating:          { pollCode:"857291", voterToken:"voter_47291038", optionId:0, voteValue:"4" }
-     Open Text:       { pollCode:"374819", voterToken:"voter_47291038", optionId:0, voteValue:"Tôi thích Vue" }
-     ```
-   - Thành công:
-     - `localStorage['voted_482931'] = 'true'`
-     - Hiện màn hình "Vote Recorded!"
-   - Lỗi "already" (server phát hiện) → hiện "Already Voted"
-   - Lỗi khác → bật `hasSubmitError = true`
-
-**Dữ liệu được lưu vào DB sau mỗi loại vote:**
-
-```
-Multiple Choice (chọn "React" = Id:2):
-  Votes: (PollCode="482931", OptionId=2, VoteValue="", VoterToken="voter_47291038", CreatedAt=now)
-  Analytics: (PollCode="482931", OptionId=2, VoteTime=now)
-
-Yes / No (chọn "Yes" = Id:4):
-  Votes: (PollCode="193847", OptionId=4, VoteValue="", VoterToken="voter_47291038", CreatedAt=now)
-  Analytics: (PollCode="193847", OptionId=4, VoteTime=now)
-
-Rating (chọn 4 sao):
-  Votes: (PollCode="857291", OptionId=0, VoteValue="4", VoterToken="voter_47291038", CreatedAt=now)
-  Analytics: (PollCode="857291", OptionId=0, VoteTime=now)
-
-Open Text (nhập "Tôi thích Vue"):
-  Votes: (PollCode="374819", OptionId=0, VoteValue="Tôi thích Vue", VoterToken="voter_47291038", CreatedAt=now)
-  Analytics: (PollCode="374819", OptionId=0, VoteTime=now)
-```
-
----
-
-### 8.3 Đóng Poll (Stop)
-
-1. Creator bấm "Stop" trong AnalyticsView → modal xác nhận
-2. Bấm "Stop Now":
-   - `PUT /api/polls/code/482931` với body `{ ...poll, status: "Closed" }`
-   - Backend cập nhật DB: `Polls.Status = "Closed"`
-   - Backend phát hiện `statusIsChanging = true` → gọi VoteService
-   - VoteService nhận → broadcast SignalR `"PollClosed"` đến group `poll_482931`
-3. Kết quả tức thì:
-   - **AnalyticsView (creator):** `poll.value.status = 'Closed'` → badge đổi sang "Closed" đỏ, nút "Stop" ẩn
-   - **VoteView (voter đang mở):** nhận event `PollClosed` → `isPollExpired()` → hiện banner đỏ "This poll has ended", ẩn form vote
-4. Sau khi đóng: Voters vào link cũ → VoteView load poll → `status !== "Active"` → hiện "Closed"
-
----
-
-### 8.4 Xóa Poll (Delete)
-
-1. Creator bấm "Delete" → modal xác nhận
-2. Bấm "Delete":
-   - `DELETE /api/polls/code/482931`
-   - Backend xóa Polls + Options (cascade trong PollDB)
-   - Backend gọi VoteService: `DELETE /api/votes/by-poll-code/482931`
-   - VoteService xóa tất cả Votes có `PollCode = "482931"` trong VoteDB
-   - AnalyticsDB **không xóa** (audit log giữ lại)
-3. Frontend sau khi API thành công:
-   - Xóa `"482931"` khỏi `localStorage['createdPolls']`
-   - Toast "Poll deleted."
-   - `router.push('/')` → về trang chủ
-4. Nếu ai đó vào link vote cũ → PollService trả 404 → VoteView hiện "Poll Not Found"
-5. Nếu ai đó vào `/analytics?code=482931` → code không còn trong `localStorage` → "Access Denied"
-
----
-
-## 9. Realtime với SignalR
-
-### Tại sao cần SignalR?
-
-HTTP thông thường là **client kéo** (client hỏi, server trả lời). Để xem kết quả live, phải refresh liên tục — tốn băng thông, chậm. SignalR là **server đẩy** — khi có vote mới, server chủ động gửi dữ liệu đến tất cả trình duyệt đang mở mà không cần ai hỏi.
-
-### Cơ chế kết nối
-
-SignalR tự chọn transport tốt nhất:
-1. **WebSocket** (ưu tiên) — kết nối 2 chiều liên tục, latency thấp nhất
-2. **Server-Sent Events** — server đẩy 1 chiều, fallback nếu WebSocket bị block
-3. **Long Polling** — HTTP polling "giả lập" realtime, fallback cuối cùng
-
-### VoteHub (`VoteService/Hubs/VoteHub.cs`)
-
-Hub là class trung tâm của SignalR server. Mỗi client kết nối có 1 `ConnectionId` duy nhất. Client có thể join **Group** để nhận broadcast theo nhóm.
+**Hub** là class trung tâm xử lý kết nối và events.
 
 ```csharp
 public class VoteHub : Hub
 {
-    // Client gọi: connection.invoke("JoinPollRoom", "482931")
-    // → Server thêm ConnectionId này vào group "poll_482931"
-    // → Server gửi confirm "JoinedRoom" về client đó
+    // Client gọi: connection.invoke('JoinPollRoom', '123456')
     public async Task JoinPollRoom(string pollCode)
     {
+        // Thêm connection này vào group "poll_123456"
         await Groups.AddToGroupAsync(Context.ConnectionId, $"poll_{pollCode}");
+        
+        // Gửi xác nhận về client
         await Clients.Caller.SendAsync("JoinedRoom", pollCode);
     }
 
-    // Client gọi khi unmount component → giải phóng connection khỏi group
+    // Client gọi: connection.invoke('LeavePollRoom', '123456')
     public async Task LeavePollRoom(string pollCode)
     {
+        // Xóa connection khỏi group
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"poll_{pollCode}");
-    }
-
-    // Broadcast từ client đến group (thường dùng từ server controller thay vì client)
-    public async Task BroadcastVoteUpdate(string pollCode, object voteData)
-    {
-        await Clients.Group($"poll_{pollCode}").SendAsync("VoteUpdated", voteData);
     }
 }
 ```
 
-**Sơ đồ Groups:**
-```
-poll_482931 (group)
-  ├── ConnectionId: "a3f8..." (AnalyticsView - creator)
-  ├── ConnectionId: "b7c2..." (VoteView - voter đang mở)
-  └── ConnectionId: "d9e1..." (VoteView - voter khác)
+**Context.ConnectionId là gì?**
 
-poll_193847 (group)
-  └── ConnectionId: "f2a9..." (AnalyticsView - creator khác)
-```
+Mỗi khi 1 client kết nối SignalR, SignalR tự sinh 1 ID duy nhất (ví dụ: `"abc123xyz"`).  
+Backend dùng ID này để biết gửi message cho client nào.
 
-### Broadcast từ VoteService Controller
+**Groups là gì?**
 
-Server-side code không kế thừa Hub, không thể gọi method của Hub trực tiếp. Dùng `IHubContext<VoteHub>` — được inject vào Controller:
+Nhóm nhiều connections lại. Ví dụ:
+- Poll `123456` có 5 người đang xem → 5 connections trong group `"poll_123456"`
+- Khi có vote mới → Server gửi 1 lần đến group → 5 người nhận cùng lúc
+
+### 5.3 Broadcast từ VotesController
+
+**VotesController** không phải Hub nhưng vẫn gửi được SignalR qua `IHubContext`:
 
 ```csharp
-// Sau khi lưu vote xong:
-await _signalRHubContext.Clients
-    .Group($"poll_{voteData.PollCode}")
-    .SendAsync("VoteUpdated", new {
-        pollCode = voteData.PollCode,
-        totalVotes = totalVotesForThisPoll,
-        voteResults = allVotesForThisPoll  // [{optionId, voteCount}]
-    });
+public class VotesController : ControllerBase
+{
+    private readonly IHubContext<VoteHub> _hubContext;
+
+    public VotesController(IHubContext<VoteHub> hubContext)
+    {
+        _hubContext = hubContext;
+    }
+
+    [HttpPost]
+    public async Task<IActionResult> SubmitVote([FromBody] Vote vote)
+    {
+        // ... lưu vote vào DB ...
+
+        // Tính kết quả mới
+        var results = await CalculateResults(vote.PollCode);
+
+        // Broadcast đến tất cả client trong group
+        await _hubContext.Clients
+            .Group($"poll_{vote.PollCode}")
+            .SendAsync("VoteUpdated", new {
+                pollCode = vote.PollCode,
+                totalVotes = results.Total,
+                voteResults = results.ByOption
+            });
+
+        return Ok();
+    }
+}
 ```
 
-### `usePollHub.js` — Composable phía Frontend
+**Luồng realtime khi có vote:**
 
-File `src/usePollHub.js` đóng gói toàn bộ logic SignalR thành 1 composable (hàm có thể tái sử dụng trong nhiều component):
+```
+1. User A submit vote
+   → POST /api/votes
+
+2. VoteService lưu vote vào DB
+
+3. VoteService tính kết quả mới:
+   - Option 1: 3 votes
+   - Option 2: 5 votes
+   Total: 8 votes
+
+4. VoteService gọi SignalR:
+   _hubContext.Clients.Group("poll_123456")
+     .SendAsync("VoteUpdated", {...})
+
+5. SignalR Hub phát event đến tất cả clients trong group
+
+6. AnalyticsView (đang mở ở 3 trình duyệt) nhận event:
+   hubConnection.on('VoteUpdated', data => {
+     totalVotes.value = data.totalVotes
+     chartData.value = data.voteResults
+   })
+
+7. UI tự động cập nhật không cần reload
+```
+
+### 5.4 usePollHub.js — Frontend Composable
+
+**Composable** là hàm Vue Composition API để tái sử dụng logic.
 
 ```js
+import * as signalR from '@microsoft/signalr'
+
 export function usePollHub(pollCode, onVoteUpdated) {
   const connected = ref(false)
   let connection = null
 
   const start = async () => {
+    // 1. Tạo connection
     connection = new signalR.HubConnectionBuilder()
-      .withUrl('https://localhost:5002/hubs/vote')
-      // Tự reconnect sau: 0ms, 1s, 3s, 5s rồi dừng
-      .withAutomaticReconnect([0, 1000, 3000, 5000])
+      .withUrl('https://localhost:5002/hubs/vote')  // URL của VoteHub
+      .withAutomaticReconnect([0, 1000, 3000, 5000]) // Retry delay
       .configureLogging(signalR.LogLevel.Warning)
       .build()
 
-    // Đăng ký nhận các events từ server
-    connection.on('VoteUpdated', notify)   // có vote mới
-    connection.on('PollClosed', notify)    // poll bị đóng
-
-    // Cập nhật badge "Live"/"Connecting..." khi state thay đổi
-    connection.onreconnecting(() => { connected.value = false })
-    connection.onreconnected(() => {
-      connected.value = true
-      connection.invoke('JoinPollRoom', pollCode)  // rejoin group sau reconnect
+    // 2. Đăng ký event handlers
+    connection.on('VoteUpdated', data => {
+      if (data.pollCode === pollCode) {
+        onVoteUpdated(data)  // Gọi callback từ component
+      }
     })
-    connection.onclose(() => { connected.value = false })
 
+    connection.on('PollClosed', data => {
+      if (data.pollCode === pollCode) {
+        onVoteUpdated(data)
+      }
+    })
+
+    // 3. Kết nối
     await connection.start()
-    await connection.invoke('JoinPollRoom', pollCode)  // join group
     connected.value = true
+
+    // 4. Join group của poll này
+    await connection.invoke('JoinPollRoom', pollCode)
   }
 
   const stop = async () => {
-    connection.invoke('LeavePollRoom', pollCode)  // rời group
-    await connection.stop()                        // đóng kết nối
+    if (connection) {
+      await connection.invoke('LeavePollRoom', pollCode)
+      await connection.stop()
+    }
     connected.value = false
   }
 
-  onUnmounted(stop)  // tự dọn dẹp khi component bị gỡ khỏi DOM
+  // Tự động disconnect khi component unmount
+  onUnmounted(stop)
 
   return { connected, start, stop }
 }
 ```
 
-**Dùng trong AnalyticsView:**
-```js
-const { connected: isHubConnected, start: startHub } = usePollHub(pollCode, async (data) => {
-  // Callback này chạy khi nhận VoteUpdated hoặc PollClosed
-  totalVotes.value = data.total
-  await loadResults()  // gọi lại REST API để lấy chi tiết kết quả
+### 5.5 Dùng trong component
+
+**AnalyticsView.vue:**
+```vue
+<script setup>
+import { usePollHub } from '@/usePollHub'
+
+const pollCode = route.query.code
+
+const handleVoteUpdate = (data) => {
+  if (data.totalVotes !== undefined) {
+    // Nhận VoteUpdated event
+    totalVotes.value = data.totalVotes
+    chartData.value = data.voteResults
+  }
+  if (data.status === 'Closed') {
+    // Nhận PollClosed event
+    poll.value.status = 'Closed'
+  }
+}
+
+const { connected, start } = usePollHub(pollCode, handleVoteUpdate)
+
+onMounted(() => {
+  start()
 })
+</script>
 
-onMounted(async () => {
-  // Load dữ liệu lần đầu, sau đó mới start SignalR
-  await loadResults()
-  startHub()
+<template>
+  <div class="realtime-badge" :class="{ connected }">
+    {{ connected ? 'Live' : 'Connecting...' }}
+  </div>
+</template>
+```
+
+**VoteView.vue:**
+```vue
+<script setup>
+const handleVoteUpdate = (data) => {
+  if (data.status === 'Closed') {
+    showClosedBanner.value = true
+  }
+}
+
+const { start } = usePollHub(pollCode, handleVoteUpdate)
+onMounted(start)
+</script>
+```
+
+### 5.6 Automatic Reconnect
+
+SignalR tự động reconnect khi mất kết nối (Wi-Fi đứt, server restart):
+
+```js
+.withAutomaticReconnect([0, 1000, 3000, 5000])
+```
+
+**Delay sequence:**
+1. Lần 1: retry ngay (0ms)
+2. Lần 2: retry sau 1 giây
+3. Lần 3: retry sau 3 giây
+4. Lần 4: retry sau 5 giây
+5. Lần 5+: retry mỗi 5 giây
+
+**Sau khi reconnect thành công:**
+```js
+connection.onreconnected(() => {
+  connected.value = true
+  connection.invoke('JoinPollRoom', pollCode)  // Join lại group
 })
 ```
 
-### Fallback khi SignalR offline
+### 5.7 Tại sao không routing SignalR qua Ocelot?
 
-```js
-// Cứ 6 giây: nếu WebSocket mất kết nối → gọi REST API thủ công
-setInterval(() => {
-  if (!isHubConnected.value) loadResults()
-}, 6000)
-```
+Ocelot có thể routing WebSocket nhưng:
+1. Cần cấu hình phức tạp (`UpgradeHttpVersion`, `AllowAutoRedirect`)
+2. Long-polling fallback dễ bị lỗi qua proxy
+3. Latency cao hơn (thêm 1 hop)
 
-Đảm bảo kết quả vẫn được cập nhật dù môi trường không hỗ trợ WebSocket.
+→ Frontend kết nối **trực tiếp** đến VoteService `:5002/hubs/vote`.
 
----
-
-## 10. Frontend — Giải thích từng file
-
-### `main.js` — Entry point
-
-File đầu tiên được chạy khi browser load app. Lắp ráp tất cả "mảnh ghép":
-
-```js
-import { createApp } from 'vue'
-import App from './App.vue'         // Root component
-import router from './router'       // Routing
-import Toast from 'vue-toastification'
-import 'vue-toastification/dist/index.css'
-import './assets/main.css'          // Global CSS
-
-const app = createApp(App)
-app.use(router)  // Đăng ký router → <router-link>, useRouter(), useRoute() dùng được ở mọi component
-app.use(Toast, { position: 'bottom-right', timeout: 2500, ... })  // Toast notification
-app.mount('#app')  // Gắn Vue app vào <div id="app"> trong public/index.html
-```
 
 ---
 
-### `App.vue` — Root component (Khung xương)
+## 6. Frontend
 
-Không chứa logic nghiệp vụ. Chỉ là "vỏ bọc" bao quanh tất cả trang:
+### 6.1 Cấu trúc thư mục
 
-```html
-<router-view v-slot="{ Component }">
-  <transition name="fade" mode="out-in">
-    <component :is="Component" />  <!-- Trang hiện tại render ở đây -->
-  </transition>
-</router-view>
+```
+client/
+├── public/               ← Favicon, index.html (template)
+├── src/
+│   ├── main.js          ← Entry point: khởi tạo app
+│   ├── App.vue          ← Root component
+│   ├── api.js           ← Axios + tất cả hàm gọi API
+│   ├── voterToken.js    ← Tạo/lấy voter token
+│   ├── usePollHub.js    ← SignalR composable
+│   ├── router/
+│   │   └── index.js     ← Route config
+│   ├── views/           ← 4 trang chính
+│   │   ├── HomeView.vue
+│   │   ├── CreatePollView.vue
+│   │   ├── VoteView.vue
+│   │   └── AnalyticsView.vue
+│   └── assets/
+│       └── main.css     ← Design system + TailwindCSS
+├── package.json         ← Dependencies
+├── tailwind.config.js   ← TailwindCSS config
+└── vue.config.js        ← Dev server config
 ```
 
-- `<router-view>` là "ổ cắm" — Vue Router tự thay component bên trong khi URL đổi
-- `<transition name="fade">` thêm animation fade (định nghĩa trong `main.css`) khi chuyển trang
-- `mode="out-in"` — trang cũ fade out xong, trang mới mới fade in (không chồng nhau)
+### 6.2 Thư viện Frontend chi tiết
+
+#### Vue 3 — Framework UI
+
+**Cài đặt:**
+```bash
+npm install vue@^3.2.13
+```
+
+**Tác dụng:**
+- Framework reactive: thay đổi data → UI tự động cập nhật
+- Component-based: chia UI thành các component nhỏ tái sử dụng
+- Composition API: `<script setup>`, `ref()`, `computed()`, `onMounted()`
+
+**Ví dụ reactive:**
+```vue
+<script setup>
+import { ref } from 'vue'
+
+const count = ref(0)  // Tạo biến reactive
+
+function increment() {
+  count.value++  // Thay đổi giá trị
+}
+</script>
+
+<template>
+  <!-- UI tự động cập nhật khi count thay đổi -->
+  <button @click="increment">{{ count }}</button>
+</template>
+```
 
 ---
 
-### `router/index.js` — Điều hướng
+#### Vue Router — Điều hướng
 
+**Cài đặt:**
+```bash
+npm install vue-router@^4.6.4
+```
+
+**Tác dụng:** SPA routing — chuyển trang không reload.
+
+**File `router/index.js`:**
 ```js
 const routes = [
-  { path: '/',           component: HomeView,       meta: { title: 'PollBuilder' } },
-  { path: '/create',     component: CreatePollView, meta: { title: 'Create Poll' } },
-  { path: '/vote/:code?',component: VoteView,       meta: { title: 'Vote' } },
-  // :code? = tham số tùy chọn. /vote/123456 → code='123456'. /vote → code=undefined
-  { path: '/analytics',  component: AnalyticsView,  meta: { title: 'Analytics & Results' } },
-  // analytics dùng query string: /analytics?code=123456
-  { path: '/:pathMatch(.*)*', redirect: '/' },  // URL không khớp → về trang chủ
+  {
+    path: '/',
+    name: 'Home',
+    component: () => import('../views/HomeView.vue'),
+    meta: { title: 'PollBuilder' }
+  },
+  {
+    path: '/vote/:code?',  // :code? = optional param
+    name: 'Vote',
+    component: () => import('../views/VoteView.vue'),
+    meta: { title: 'Vote' }
+  }
 ]
 
-// beforeEach chạy trước mỗi lần chuyển trang → update title tab trình duyệt
+const router = createRouter({
+  history: createWebHistory(),
+  routes,
+  scrollBehavior() {
+    return { top: 0 }  // Scroll về đầu trang khi chuyển route
+  }
+})
+
+// Cập nhật title tab trình duyệt
 router.beforeEach(to => {
   document.title = to.meta.title || 'Poll Survey'
 })
 ```
 
-**Scroll behavior:** `scrollBehavior() { return { top: 0 } }` — tự cuộn lên đầu trang khi chuyển route.
+**Dùng trong component:**
+```vue
+<script setup>
+import { useRouter, useRoute } from 'vue-router'
+
+const router = useRouter()
+const route = useRoute()
+
+// Chuyển trang
+router.push('/vote/123456')
+router.push({ name: 'Analytics', query: { code: '123456' } })
+
+// Đọc URL
+const code = route.params.code     // Lấy từ /vote/:code
+const code2 = route.query.code     // Lấy từ /analytics?code=123
+</script>
+```
 
 ---
 
-### `api.js` — HTTP client
+#### Axios — HTTP Client
 
-Tạo 1 Axios instance dùng chung cho toàn app:
+**Cài đặt:**
+```bash
+npm install axios@^1.19.0
+```
 
+**Tác dụng:** Gửi HTTP request, tiện hơn `fetch` native.
+
+**File `api.js`:**
 ```js
+import axios from 'axios'
+
 const apiClient = axios.create({
-  baseURL: 'https://localhost:5000',      // OcelotGateway
+  baseURL: 'https://localhost:5000',
   headers: { 'Content-Type': 'application/json' },
-  timeout: 10000,                         // 10s timeout
+  timeout: 10000
 })
 
-// Interceptor: chuẩn hóa error → component chỉ cần catch(e) → e.message
+// Interceptor: bắt lỗi tập trung
 apiClient.interceptors.response.use(
   res => res,
   err => {
-    const msg = err.response?.data?.message || err.message || 'Server connection error.'
+    const msg = err.response?.data?.message || err.message
     return Promise.reject(new Error(msg))
   }
 )
 
 export const pollApi = {
-  getPollByCode: code => apiClient.get(`/api/polls/code/${code}`),
-  checkPoll:     code => apiClient.get(`/api/polls/check/${code}`),
-  createPoll:    data => apiClient.post('/api/polls', data),
-  updatePoll:    (code, data) => apiClient.put(`/api/polls/code/${code}`, data),
-  deletePoll:    code => apiClient.delete(`/api/polls/code/${code}`),
-  submitVote:    data => apiClient.post('/api/votes', data),
-  getVoteResults:code => apiClient.get(`/api/votes/result/${code}`),
-  getVoteTotal:  code => apiClient.get(`/api/votes/total/${code}`),
-  getVoteList:   code => apiClient.get(`/api/votes/list/${code}`),
+  createPoll: data => apiClient.post('/api/polls', data),
+  checkPoll: code => apiClient.get(`/api/polls/check/${code}`),
+  submitVote: data => apiClient.post('/api/votes', data)
 }
 ```
 
----
+**Dùng trong component:**
+```vue
+<script setup>
+import { pollApi } from '@/api'
 
-### `voterToken.js` — Token định danh người dùng
-
-Tạo và lưu token ngẫu nhiên vào localStorage — dùng để server chặn vote 2 lần:
-
-```js
-export function getVoterToken() {
-  let token = localStorage.getItem('poll_voter_token')
-  if (token === null) {
-    let randomPart = ''
-    for (let i = 0; i < 8; i++) {
-      randomPart += Math.floor(Math.random() * 10)  // 8 chữ số ngẫu nhiên
-    }
-    token = 'voter_' + randomPart  // "voter_47291038"
-    localStorage.setItem('poll_voter_token', token)
+const submit = async () => {
+  try {
+    const res = await pollApi.createPoll({ question: '...', ... })
+    console.log(res.data)  // Object poll từ server
+  } catch (error) {
+    console.error(error.message)  // Message từ interceptor
   }
-  return token
+}
+</script>
+```
+
+---
+
+#### @microsoft/signalr — Realtime Client
+
+**Cài đặt:**
+```bash
+npm install @microsoft/signalr@^10.0.0
+```
+
+**Tác dụng:** Kết nối SignalR Hub, nhận events realtime.
+
+**File `usePollHub.js`:**
+```js
+import * as signalR from '@microsoft/signalr'
+
+export function usePollHub(pollCode, onVoteUpdated) {
+  let connection = null
+
+  const start = async () => {
+    connection = new signalR.HubConnectionBuilder()
+      .withUrl('https://localhost:5002/hubs/vote')
+      .withAutomaticReconnect([0, 1000, 3000, 5000])
+      .build()
+
+    connection.on('VoteUpdated', onVoteUpdated)
+    
+    await connection.start()
+    await connection.invoke('JoinPollRoom', pollCode)
+  }
+
+  return { start }
 }
 ```
 
 ---
 
-### `usePollHub.js` — SignalR composable
+#### vue-toastification — Thông báo
 
-Xem phần [Realtime với SignalR](#9-realtime-với-signalr) ở trên.
+**Cài đặt:**
+```bash
+npm install vue-toastification@^2.0.0-rc.5
+```
+
+**Import CSS bắt buộc trong `main.js`:**
+```js
+import 'vue-toastification/dist/index.css'
+```
+
+**Cấu hình trong `main.js`:**
+```js
+import Toast from 'vue-toastification'
+
+app.use(Toast, {
+  position: 'bottom-right',
+  timeout: 2500,
+  closeOnClick: true,
+  pauseOnHover: true
+})
+```
+
+**Dùng trong component:**
+```vue
+<script setup>
+import { useToast } from 'vue-toastification'
+
+const toast = useToast()
+
+function success() {
+  toast.success('Poll created!')
+}
+
+function error() {
+  toast.error('Failed to create poll.')
+}
+</script>
+```
 
 ---
 
-### `views/HomeView.vue` — Trang chủ
+#### qrcode — Tạo mã QR
 
-**Giao diện:** Hero title + 2 card (Join Poll | Create Poll) + How It Works
+**Cài đặt:**
+```bash
+npm install qrcode@^1.5.4
+```
 
-**Các hàm quan trọng:**
+**Tác dụng:** Vẽ QR code lên `<canvas>`.
 
+**Dùng trong component:**
+```vue
+<script setup>
+import QRCode from 'qrcode'
+import { ref, onMounted } from 'vue'
+
+const canvasRef = ref(null)
+
+onMounted(async () => {
+  const url = 'https://example.com/vote/123456'
+  await QRCode.toCanvas(canvasRef.value, url, {
+    width: 320,
+    margin: 2,
+    color: {
+      dark: '#000000',
+      light: '#ffffff'
+    }
+  })
+})
+</script>
+
+<template>
+  <canvas ref="canvasRef"></canvas>
+</template>
+```
+
+---
+
+#### @lucide/vue — Icon SVG
+
+**Cài đặt:**
+```bash
+npm install @lucide/vue@^1.28.0
+```
+
+**Tác dụng:** Icon SVG dạng Vue component, tree-shakeable.
+
+**Dùng trong component:**
+```vue
+<script setup>
+import { Check, Trash2, Star } from '@lucide/vue'
+</script>
+
+<template>
+  <button>
+    <Check :size="16" />
+    Success
+  </button>
+  
+  <button>
+    <Trash2 :size="16" color="#ff0000" />
+    Delete
+  </button>
+</template>
+```
+
+---
+
+#### TailwindCSS — Utility CSS
+
+**Cài đặt:**
+```bash
+npm install -D tailwindcss@^3.4.19 autoprefixer@^10.5.4 postcss@^8.5.25
+npx tailwindcss init
+```
+
+**File `tailwind.config.js`:**
 ```js
-// joinPoll — xử lý khi bấm "Join Room"
+module.exports = {
+  content: ['./src/**/*.{vue,js,ts}'],
+  theme: {
+    extend: {}
+  }
+}
+```
+
+**File `main.css`:**
+```css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --blue: #2563eb;
+  --text: #1e293b;
+  --border: #e2e8f0;
+}
+```
+
+**Dùng trong template:**
+```vue
+<template>
+  <div class="flex items-center gap-2 p-4 bg-white border rounded-lg">
+    <button class="px-4 py-2 text-white bg-blue-600 rounded hover:bg-blue-700">
+      Submit
+    </button>
+  </div>
+</template>
+```
+
+
+### 6.3 Giải thích từng View
+
+#### HomeView.vue — Trang chủ
+
+**Chức năng:**
+1. Join poll bằng code 6 số
+2. Hoặc chuyển sang CreatePollView để tạo mới
+
+**Logic quan trọng:**
+
+```vue
+<script setup>
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { pollApi } from '../api'
+
+const router = useRouter()
+const code = ref('')
+const codeError = ref('')
+const joinLoading = ref(false)
+
 const joinPoll = async () => {
+  // Validate code đủ 6 chữ số
   if (code.value.length < 6) {
     codeError.value = 'Please enter all 6 digits'
     return
   }
+
   joinLoading.value = true
   try {
-    await pollApi.checkPoll(code.value)   // GET /api/polls/check/{code}
-    // Thành công → chuyển đến trang vote
+    // Gọi API validate poll
+    await pollApi.checkPoll(code.value)
+    
+    // Thành công → chuyển sang VoteView
     router.push(`/vote/${code.value}`)
   } catch {
-    codeError.value = 'Poll not found'    // API lỗi → hiện lỗi dưới input
+    // Thất bại → hiện lỗi
+    codeError.value = 'Poll not found'
   } finally {
     joinLoading.value = false
   }
 }
+</script>
+
+<template>
+  <form @submit.prevent="joinPoll">
+    <input 
+      v-model="code" 
+      type="text" 
+      inputmode="numeric"
+      maxlength="6" 
+      placeholder="000000"
+    />
+    <p v-if="codeError">{{ codeError }}</p>
+    <button type="submit" :disabled="joinLoading">
+      {{ joinLoading ? 'Joining...' : 'Join Room' }}
+    </button>
+  </form>
+</template>
 ```
 
-**Test cases:**
-- Nhập code < 6 chữ số → "Please enter all 6 digits" (validate trước khi gọi API)
-- Nhập code 6 chữ số hợp lệ → gọi API → thành công → chuyển sang `/vote/{code}`
-- Nhập code 6 chữ số nhưng poll không tồn tại / đóng / hết hạn → API lỗi → "Poll not found"
+**Test case:**
+
+| Hành động | Kết quả |
+|-----------|---------|
+| Nhập `123` → Submit | "Please enter all 6 digits" |
+| Nhập `999999` → Submit | API call → 404 → "Poll not found" |
+| Nhập `123456` (tồn tại) → Submit | API call → 200 OK → Chuyển sang `/vote/123456` |
 
 ---
 
-### `views/CreatePollView.vue` — Tạo Poll
+#### CreatePollView.vue — Tạo poll
 
-**State quan trọng:**
-```js
+**Chức năng:** Form tạo poll với 4 loại câu hỏi.
+
+**Logic quan trọng:**
+
+```vue
+<script setup>
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { useToast } from 'vue-toastification'
+import { pollApi } from '../api'
+
+const router = useRouter()
+const toast = useToast()
+
 const form = ref({
   question: '',
   questionType: 'Multiple Choice',
-  expireAt: getDefaultExpireDate(),   // 5 phút sau (default cho datetime-local input)
-  options: [{ text: '' }, { text: '' }]  // tối thiểu 2
+  expireAt: getDefaultExpireDate(),  // 5 phút sau
+  options: [{ text: '' }, { text: '' }]
 })
-const expireMode = ref('none')  // 'none' | 'custom'
+
+const expireMode = ref('none')  // 'none' hoặc 'custom'
+
+// Tạo code ngẫu nhiên 6 chữ số
+const generateCode = () => {
+  return Math.floor(100000 + Math.random() * 900000).toString()
+}
+
+// Chuyển datetime-local sang UTC ISO
+const localDateTimeToUtcIso = (localStr) => {
+  const date = new Date(localStr)
+  return date.toISOString()
+}
+
+const submit = async () => {
+  // Validate
+  if (!form.value.question.trim()) {
+    toast.error('Please enter a question.')
+    return
+  }
+
+  const payload = {
+    code: generateCode(),
+    question: form.value.question.trim(),
+    questionType: form.value.questionType,
+    expireAt: expireMode.value === 'custom'
+      ? localDateTimeToUtcIso(form.value.expireAt)
+      : new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000).toISOString(), // 100 năm
+    options: form.value.questionType === 'Multiple Choice'
+      ? form.value.options.filter(o => o.text.trim()).map(o => ({ text: o.text.trim() }))
+      : []
+  }
+
+  try {
+    const res = await pollApi.createPoll(payload)
+    const poll = res.data
+    
+    // Lưu code vào localStorage (để xác nhận quyền creator)
+    const saved = JSON.parse(localStorage.getItem('createdPolls') || '[]')
+    saved.push(poll.code)
+    localStorage.setItem('createdPolls', JSON.stringify(saved))
+    
+    toast.success('Poll created!')
+    router.push({ name: 'Analytics', query: { code: poll.code } })
+  } catch (error) {
+    toast.error(error.message)
+  }
+}
+</script>
 ```
 
-**Hàm `addOption` / `removeOption`:**
-```js
-const addOption = () => {
-  if (form.value.options.length < 6) form.value.options.push({ text: '' })
-}
-const removeOption = (index) => {
-  if (form.value.options.length > 2) form.value.options.splice(index, 1)
-}
-```
+**Test case tạo Multiple Choice:**
 
-**Hàm `submit` — các bước:**
-1. Validate question + đủ options
-2. `roomCode = Math.floor(100000 + Math.random() * 900000).toString()`
-3. Convert thời gian: `expireMode === 'custom'` → `localDateTimeToUtcIso(form.expireAt)` hoặc `100 năm sau`
-4. `POST /api/polls` → nhận lại poll với Id
-5. `saveCreatedPollCode(code)` → `localStorage['createdPolls'].push(code)`
-6. `router.push('/analytics?code=' + code)`
+| Input | Backend nhận | Backend lưu |
+|-------|--------------|-------------|
+| Question: "Best framework?" | `question: "Best framework?"` | Lưu vào `Polls.Question` |
+| Type: "Multiple Choice" | `questionType: "Multiple Choice"` | Lưu vào `Polls.QuestionType` |
+| Options: ["Vue", "React"] | `options: [{text:"Vue"}, {text:"React"}]` | INSERT 2 rows vào `Options` |
+| ExpireAt: Custom "2026-08-10 12:00" | `expireAt: "2026-08-10T05:00:00Z"` (UTC+7 → UTC) | Lưu vào `Polls.ExpireAt` |
 
-**Test cases:**
-- Gửi form với question rỗng → toast "Please enter a question."
-- Multiple Choice với < 2 options có nội dung → toast "Need at least 2 valid options."
-- Chọn "Set Deadline" nhưng không đổi giờ → expireAt = giờ mặc định (5 phút sau)
-- Tạo thành công → toast "Poll created!" → redirect sang analytics
+**Test case tạo Yes/No:**
+
+| Input | Backend xử lý |
+|-------|---------------|
+| Type: "Yes / No" | Backend **bỏ qua** options frontend gửi |
+| | Backend tự tạo: `options: [{text:"Yes"}, {text:"No"}]` |
+
+**Test case tạo Rating:**
+
+| Input | Backend xử lý |
+|-------|---------------|
+| Type: "Rating" | Backend **không tạo** Options nào |
+| | Bảng `Options` không có row nào cho poll này |
 
 ---
 
-### `views/VoteView.vue` — Bỏ phiếu
+#### VoteView.vue — Trang bỏ phiếu
 
-**5 trạng thái UI (v-if/v-else-if theo thứ tự):**
+**5 trạng thái UI:**
 
-```
-pollNotFound   = true  → "Poll Not Found" card
-alreadyVoted   = true  → "Already Voted" card
-voteSubmitted  = true  → "Vote Recorded!" card
-poll           ≠ null  → Form vote (theo questionType)
-else                   → Form nhập code thủ công
-```
+1. **Loading** — Đang gọi API lấy thông tin poll
+2. **Poll Closed** — Poll đã đóng (banner đỏ)
+3. **Already Voted** — User đã vote rồi (hiện kết quả)
+4. **Vote Form** — Form bỏ phiếu
+5. **Success** — Đã vote thành công (hiện kết quả + confetti)
 
-**Các biến form:**
-```js
-const selectedOptionId = ref(null)  // MC/YN: ID option được chọn
-const voteValue = ref('')           // Rating: "1"~"5", OpenText: nội dung
-const hasSubmitError = ref(false)   // true = hiện thông báo lỗi đỏ
-const isSubmitting = ref(false)     // true = disable nút, hiện spinner
-```
+**Logic quan trọng:**
 
-**Hàm `submitVote` — validate theo loại:**
-```js
-if (type === 'Multiple Choice' || type === 'Yes / No') {
-  if (selectedOptionId.value === null) { hasSubmitError = true; return }
-} else if (type === 'Rating') {
-  if (voteValue.value === '') { hasSubmitError = true; return }
-} else if (type === 'Open Text') {
-  if (voteValue.value.trim() === '') { hasSubmitError = true; return }
+```vue
+<script setup>
+import { ref, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
+import { pollApi } from '@/api'
+import { getVoterToken } from '@/voterToken'
+import { usePollHub } from '@/usePollHub'
+
+const route = useRoute()
+const pollCode = ref(route.params.code || '')
+
+const poll = ref(null)
+const loading = ref(true)
+const alreadyVoted = ref(false)
+const showClosedBanner = ref(false)
+
+// Kiểm tra đã vote chưa từ localStorage
+const checkAlreadyVoted = () => {
+  const voted = localStorage.getItem(`voted_${pollCode.value}`)
+  return voted === 'true'
 }
+
+onMounted(async () => {
+  try {
+    // Lấy thông tin poll
+    const res = await pollApi.checkPoll(pollCode.value)
+    poll.value = res.data
+    
+    // Kiểm tra đã vote chưa
+    alreadyVoted.value = checkAlreadyVoted()
+    
+    // Nếu poll đã Closed → hiện banner
+    if (poll.value.status === 'Closed') {
+      showClosedBanner.value = true
+    }
+    
+    // Kết nối SignalR để nhận event PollClosed realtime
+    const { start } = usePollHub(pollCode.value, (data) => {
+      if (data.status === 'Closed') {
+        showClosedBanner.value = true
+      }
+    })
+    start()
+    
+  } catch (error) {
+    // Poll không tồn tại → hiện lỗi
+  } finally {
+    loading.value = false
+  }
+})
+
+const submitVote = async (optionId, voteValue = '') => {
+  const payload = {
+    pollCode: pollCode.value,
+    voterToken: getVoterToken(),
+    optionId,
+    voteValue
+  }
+  
+  try {
+    await pollApi.submitVote(payload)
+    
+    // Lưu flag đã vote vào localStorage
+    localStorage.setItem(`voted_${pollCode.value}`, 'true')
+    
+    alreadyVoted.value = true
+    // Hiện confetti...
+  } catch (error) {
+    toast.error(error.message)
+  }
+}
+</script>
+
+<template>
+  <div v-if="loading">Loading...</div>
+  
+  <div v-else-if="showClosedBanner" class="banner-closed">
+    This poll has ended
+  </div>
+  
+  <div v-else-if="alreadyVoted">
+    <p>You already voted. Here are the results:</p>
+    <!-- Hiển thị kết quả -->
+  </div>
+  
+  <div v-else>
+    <!-- Form vote theo questionType -->
+    <div v-if="poll.questionType === 'Multiple Choice'">
+      <button 
+        v-for="opt in poll.options" 
+        :key="opt.id"
+        @click="submitVote(opt.id)"
+      >
+        {{ opt.text }}
+      </button>
+    </div>
+    
+    <div v-else-if="poll.questionType === 'Rating'">
+      <button 
+        v-for="star in [1,2,3,4,5]" 
+        :key="star"
+        @click="submitVote(0, star.toString())"
+      >
+        ⭐ {{ star }}
+      </button>
+    </div>
+    
+    <div v-else-if="poll.questionType === 'Open Text'">
+      <textarea v-model="openText"></textarea>
+      <button @click="submitVote(0, openText)">Submit</button>
+    </div>
+  </div>
+</template>
 ```
 
-**Test cases:**
-- Vào `/vote` không có code → hiện form nhập code
-- Vào `/vote/XXXXXX` code sai → "Poll Not Found"
-- Poll đã đóng → banner đỏ "This poll has ended", nút Submit ẩn
-- `localStorage['voted_XXXXXX'] = 'true'` → "Already Voted" (không gọi API)
-- Bấm Submit chưa chọn gì → error đỏ "Please select an option"
-- Submit thành công → "Vote Recorded!" + lưu localStorage
-- Đang mở VoteView khi creator đóng poll → nhận SignalR `PollClosed` → banner đỏ hiện ngay
+**Test case:**
+
+| Tình huống | Kết quả |
+|------------|---------|
+| Poll code không tồn tại | API 404 → hiện "Poll not found" |
+| Poll status="Closed" | Hiện banner đỏ, disable form |
+| `localStorage['voted_123456']` = "true" | Hiện "You already voted" + kết quả |
+| Vote Multiple Choice option 2 | POST {optionId:2, voteValue:""} → 200 OK → set localStorage |
+| Vote Rating 4 sao | POST {optionId:0, voteValue:"4"} |
+| Vote Open Text "Vue tốt" | POST {optionId:0, voteValue:"Vue tốt"} |
+| Đang vote, creator đóng poll | SignalR event "PollClosed" → hiện banner |
+
+
+#### AnalyticsView.vue — Dashboard kết quả realtime
+
+**Chức năng:**
+1. Hiển thị kết quả realtime (cập nhật khi có vote mới)
+2. Đóng poll
+3. Xóa poll
+4. Share link/QR code
+
+**Kiểm tra quyền creator:**
+
+```vue
+<script setup>
+const isCreator = computed(() => {
+  const saved = localStorage.getItem('createdPolls')
+  const codes = JSON.parse(saved || '[]')
+  return codes.includes(pollCode.value)
+})
+</script>
+
+<template>
+  <!-- Chỉ creator mới thấy nút Close/Delete -->
+  <div v-if="isCreator">
+    <button @click="closePoll">Close Poll</button>
+    <button @click="deletePoll">Delete Poll</button>
+  </div>
+</template>
+```
+
+**Logic realtime:**
+
+```vue
+<script setup>
+import { ref, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
+import { pollApi } from '@/api'
+import { usePollHub } from '@/usePollHub'
+
+const route = useRoute()
+const pollCode = ref(route.query.code)
+
+const poll = ref(null)
+const voteResults = ref([])
+const totalVotes = ref(0)
+
+// Kết nối SignalR
+const handleVoteUpdate = (data) => {
+  if (data.totalVotes !== undefined) {
+    // Event "VoteUpdated"
+    totalVotes.value = data.totalVotes
+    voteResults.value = data.voteResults
+  }
+  if (data.status === 'Closed') {
+    // Event "PollClosed"
+    poll.value.status = 'Closed'
+  }
+}
+
+const { connected, start } = usePollHub(pollCode.value, handleVoteUpdate)
+
+onMounted(async () => {
+  // 1. Lấy thông tin poll
+  const pollRes = await pollApi.getPollByCode(pollCode.value)
+  poll.value = pollRes.data
+  
+  // 2. Lấy kết quả ban đầu (tùy theo questionType)
+  if (poll.value.questionType === 'Multiple Choice' || poll.value.questionType === 'Yes / No') {
+    const res = await pollApi.getVoteResults(pollCode.value)
+    voteResults.value = res.data
+  } else if (poll.value.questionType === 'Rating') {
+    const res = await pollApi.getVoteList(pollCode.value)
+    const votes = res.data
+    // Tính trung bình
+    const sum = votes.reduce((acc, v) => acc + parseInt(v.voteValue), 0)
+    averageRating.value = votes.length ? sum / votes.length : 0
+  } else if (poll.value.questionType === 'Open Text') {
+    const res = await pollApi.getVoteList(pollCode.value)
+    textResponses.value = res.data
+  }
+  
+  // 3. Lấy tổng votes
+  const totalRes = await pollApi.getVoteTotal(pollCode.value)
+  totalVotes.value = totalRes.data.totalVotes
+  
+  // 4. Kết nối SignalR để nhận updates
+  start()
+})
+
+// Chart data cho Multiple Choice
+const chartData = computed(() => {
+  return voteResults.value.map(r => {
+    const option = poll.value.options.find(o => o.id === r.optionId)
+    return {
+      name: option?.text || 'Unknown',
+      count: r.voteCount,
+      percentage: totalVotes.value ? (r.voteCount / totalVotes.value * 100).toFixed(1) : 0
+    }
+  })
+})
+
+const closePoll = async () => {
+  if (!confirm('Close this poll?')) return
+  
+  try {
+    await pollApi.updatePoll(pollCode.value, {
+      ...poll.value,
+      status: 'Closed'
+    })
+    poll.value.status = 'Closed'
+    toast.success('Poll closed')
+  } catch (error) {
+    toast.error(error.message)
+  }
+}
+
+const deletePoll = async () => {
+  if (!confirm('Delete this poll permanently?')) return
+  
+  try {
+    await pollApi.deletePoll(pollCode.value)
+    
+    // Xóa code khỏi localStorage
+    const saved = JSON.parse(localStorage.getItem('createdPolls') || '[]')
+    const updated = saved.filter(c => c !== pollCode.value)
+    localStorage.setItem('createdPolls', JSON.stringify(updated))
+    
+    toast.success('Poll deleted')
+    router.push('/')
+  } catch (error) {
+    toast.error(error.message)
+  }
+}
+</script>
+
+<template>
+  <div class="stats">
+    <div class="stat-card">
+      <div class="stat-value">{{ totalVotes }}</div>
+      <div class="stat-label">Total Votes</div>
+    </div>
+    <div class="stat-card">
+      <div class="badge" :class="poll.status === 'Active' ? 'badge-green' : 'badge-red'">
+        {{ poll.status }}
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="realtime-badge" :class="{ connected }">
+        {{ connected ? '🟢 Live' : '🔴 Connecting...' }}
+      </div>
+    </div>
+  </div>
+
+  <!-- Multiple Choice: Bar chart -->
+  <div v-if="poll.questionType === 'Multiple Choice'" class="chart">
+    <div v-for="item in chartData" :key="item.name" class="bar">
+      <div class="bar-label">{{ item.name }}</div>
+      <div class="bar-track">
+        <div class="bar-fill" :style="{ width: item.percentage + '%' }"></div>
+      </div>
+      <div class="bar-stat">{{ item.count }} ({{ item.percentage }}%)</div>
+    </div>
+  </div>
+
+  <!-- Rating: Average stars -->
+  <div v-else-if="poll.questionType === 'Rating'">
+    <div class="rating-display">
+      <div class="rating-value">{{ averageRating.toFixed(1) }}</div>
+      <div class="stars">⭐⭐⭐⭐⭐</div>
+    </div>
+  </div>
+
+  <!-- Open Text: List responses -->
+  <div v-else-if="poll.questionType === 'Open Text'">
+    <div v-for="(response, i) in textResponses" :key="i" class="response-card">
+      <p>{{ response.voteValue }}</p>
+      <small>{{ formatDate(response.createdAt) }}</small>
+    </div>
+  </div>
+</template>
+```
+
+**Test case realtime:**
+
+| Hành động | Kết quả |
+|-----------|---------|
+| Mở trang Analytics poll 123456 | SignalR kết nối → join group "poll_123456" |
+| User A vote option 2 (ở tab khác) | VoteService broadcast → AnalyticsView nhận event → chart tự động update |
+| Creator bấm "Close Poll" | PUT /api/polls → backend broadcast "PollClosed" → badge đổi sang "Closed" |
+| User B cố vote sau khi đóng | VoteView nhận event "PollClosed" → hiện banner đỏ |
+
+**Test case xóa poll:**
+
+| Hành động | DB/Storage thay đổi |
+|-----------|---------------------|
+| Bấm Delete Poll code 123456 | 1. PollDB: xóa Polls (Id=1) + Options (cascade) |
+| | 2. VoteDB: xóa tất cả Votes có PollCode="123456" |
+| | 3. AnalyticsDB: KHÔNG xóa (audit log giữ lại) |
+| | 4. `localStorage['createdPolls']`: xóa "123456" khỏi array |
+| | 5. Router push('/') → về trang chủ |
 
 ---
 
-### `views/AnalyticsView.vue` — Dashboard kết quả
+### 6.4 voterToken.js — Chống vote 2 lần
 
-**Kiểm tra quyền (onMounted):**
+**Vấn đề:** User không cần đăng nhập, làm sao biết user A đã vote chưa?
+
+**Giải pháp:** Lưu token duy nhất vào localStorage trình duyệt.
+
 ```js
-const savedCodes = localStorage.getItem('createdPolls')
-const createdPollCodes = JSON.parse(savedCodes || '[]')
-if (!createdPollCodes.includes(pollCode)) {
-  accessDenied.value = true  // hiện màn hình khóa
-  return
+export function getVoterToken() {
+  let token = localStorage.getItem('poll_voter_token')
+  
+  if (token === null) {
+    // Tạo chuỗi ngẫu nhiên 8 chữ số
+    let randomPart = ''
+    for (let i = 0; i < 8; i++) {
+      randomPart += Math.floor(Math.random() * 10)
+    }
+    token = 'voter_' + randomPart  // "voter_47291038"
+    localStorage.setItem('poll_voter_token', token)
+  }
+  
+  return token
 }
 ```
 
-**Hàm `loadResults` — render theo loại:**
-```js
-// Multiple Choice / Yes-No:
-const voteCountList = (await pollApi.getVoteResults(pollCode)).data
-// → map thêm tên option từ poll.options
-const resultsWithName = voteCountList.map(item => ({
-  optionId: item.optionId,
-  optionText: poll.value.options.find(o => o.id === item.optionId)?.text ?? '(unknown)',
-  count: item.count
-}))
-resultsWithName.sort((a, b) => b.count - a.count)  // sort giảm dần
-choiceResults.value = resultsWithName
-
-// Rating: getVoteList → mảng { voteValue: "4" } → render hàng sao
-// Open Text: getVoteList → filter voteValue không rỗng → render text cards
+**localStorage lưu:**
+```
+poll_voter_token = "voter_47291038"
+voted_123456 = "true"
+voted_789012 = "true"
 ```
 
-**QR Code (2 canvas — thumbnail và modal):**
-```js
-// Thumbnail (100×100px): render sau khi poll load xong
-setTimeout(() => renderQRCode(qrThumbnailCanvas.value, 100), 100)
+**Luồng chống vote 2 lần:**
 
-// Modal (320×320px): render sau khi Vue tạo canvas trong modal DOM
-const openQRModal = () => {
-  showQRModal.value = true
-  setTimeout(() => renderQRCode(qrLargeCanvas.value, 320), 50)
+```
+1. User A mở VoteView lần đầu
+   → getVoterToken() tạo "voter_47291038"
+   → Lưu vào localStorage
+
+2. User A vote poll 123456
+   → Frontend gửi: POST /api/votes {voterToken: "voter_47291038", ...}
+   → Backend: INSERT vào Votes
+   → Frontend: localStorage.setItem('voted_123456', 'true')
+
+3. User A reload trang
+   → VoteView: checkAlreadyVoted() → localStorage['voted_123456'] === 'true'
+   → Hiện "You already voted" + kết quả
+
+4. User A mở tab mới, vào VoteView lại
+   → Cùng localStorage → cùng token
+   → Backend: SELECT * FROM Votes WHERE VoterToken='voter_47291038' AND PollCode='123456'
+   → Tìm thấy → trả 400 "You have already voted."
+
+5. User A xóa cache trình duyệt
+   → localStorage mất → tạo token mới
+   → Có thể vote lại (hạn chế chấp nhận được)
+
+6. User A đổi trình duyệt
+   → localStorage khác → token khác
+   → Có thể vote lại
+```
+
+**Tại sao không dùng session cookie?**
+
+Session cookie cần backend set qua HTTP header:
+```
+Set-Cookie: voter_session=abc123; HttpOnly; SameSite=Strict
+```
+Phức tạp hơn, cần cấu hình CORS đúng. localStorage đơn giản hơn cho bài tập.
+
+**Tại sao không dùng browser fingerprint?**
+
+Canvas fingerprint, WebGL, fonts... không ổn định, dễ trùng.
+
+
+---
+
+## 7. Luồng nghiệp vụ chi tiết
+
+### 7.1 Tạo Poll (4 loại)
+
+#### Loại 1: Multiple Choice
+
+**Frontend:**
+```
+1. User điền form:
+   - Question: "Best JavaScript framework?"
+   - Type: "Multiple Choice"
+   - Options: ["Vue.js", "React", "Angular"]
+   - ExpireAt: "2026-08-10 12:00" (local time)
+
+2. Click "Create Poll"
+
+3. JavaScript xử lý:
+   - Sinh code: "123456" (random 6 số)
+   - Chuyển expireAt sang UTC: "2026-08-10T05:00:00Z"
+   - POST /api/polls {
+       code: "123456",
+       question: "Best JavaScript framework?",
+       questionType: "Multiple Choice",
+       expireAt: "2026-08-10T05:00:00Z",
+       options: [
+         { text: "Vue.js" },
+         { text: "React" },
+         { text: "Angular" }
+       ]
+     }
+```
+
+**Backend PollService:**
+```
+1. Validate question không rỗng ✓
+2. Validate expireAt > now ✓
+3. Validate code chưa tồn tại ✓
+4. Validate options.length >= 2 ✓
+
+5. Set createdAt = DateTime.UtcNow
+6. Set status = "Active"
+
+7. INSERT vào PollDB:
+   Polls table:
+     Id=1, Code="123456", Question="Best...", 
+     QuestionType="Multiple Choice", Status="Active",
+     ExpireAt="2026-08-10T05:00:00Z", 
+     CreatedAt="2026-08-02T06:30:00Z"
+   
+   Options table:
+     Id=1, PollId=1, Text="Vue.js"
+     Id=2, PollId=1, Text="React"
+     Id=3, PollId=1, Text="Angular"
+
+8. Trả về 201 Created + poll object
+```
+
+**Frontend nhận response:**
+```
+1. Lưu code vào localStorage['createdPolls']
+2. toast.success('Poll created!')
+3. router.push('/analytics?code=123456')
+```
+
+---
+
+#### Loại 2: Yes / No
+
+**Frontend:**
+```
+POST /api/polls {
+  code: "789012",
+  question: "Do you like Vue.js?",
+  questionType: "Yes / No",
+  expireAt: "2026-08-10T05:00:00Z",
+  options: []  ← Frontend KHÔNG gửi options
 }
 ```
-Cần `setTimeout` vì Vue cần 1 "tick" để tạo `<canvas>` trong DOM sau khi `v-if` bật lên.
 
-**Test cases:**
-- Vào `/analytics?code=XXX` không phải creator → "Access Denied"
-- Bấm "Stop" → confirm modal → bấm "Stop Now" → badge đổi "Closed", nút Stop ẩn
-- Bấm "Delete" → confirm modal → bấm "Delete" → redirect về `/`
-- Có người vote → bar chart cập nhật ngay không cần refresh
-- Bấm "Copy Link" → toast "Link copied!" (clipboard API)
-- Bấm "Vote Page" → mở tab mới `/vote/{code}`
-- Bấm QR thumbnail → modal QR phóng to 320×320px
+**Backend:**
+```
+1. Validate như trên ✓
+
+2. Phát hiện questionType = "Yes / No"
+   → BỎ QUA options từ request
+   → TỰ TẠO: options = [{ text: "Yes" }, { text: "No" }]
+
+3. INSERT vào DB:
+   Polls:
+     Id=2, Code="789012", Question="Do you like Vue.js?",
+     QuestionType="Yes / No", ...
+   
+   Options:
+     Id=4, PollId=2, Text="Yes"
+     Id=5, PollId=2, Text="No"
+```
 
 ---
 
-### `assets/main.css` — Design system
+#### Loại 3: Rating
 
-Định nghĩa CSS variables (màu sắc, radius, shadow) và component classes tái sử dụng:
-
-```css
-:root {
-  --blue: #2563eb;           /* màu chính */
-  --text: #0f172a;           /* màu chữ đậm */
-  --bg: #f1f5f9;             /* màu nền trang */
-  --border: #e2e8f0;         /* màu viền */
-  --green: #16a34a;          /* badge Active, vote recorded */
-  --red: #dc2626;            /* badge Closed, lỗi, xóa */
-  --radius: 8px;             /* bo góc cơ bản */
+**Frontend:**
+```
+POST /api/polls {
+  code: "345678",
+  question: "Rate our service",
+  questionType: "Rating",
+  expireAt: "2026-08-10T05:00:00Z",
+  options: []
 }
+```
 
-/* Component classes (dùng như Tailwind nhưng cho UI pattern lặp lại): */
-.btn, .btn-primary, .btn-red, .btn-ghost, .btn-outline  /* buttons */
-.card                                                     /* hộp trắng có viền */
-.badge, .badge-blue, .badge-green, .badge-red             /* tag nhỏ */
-.vote-option, .vote-option.selected                       /* option radio tùy chỉnh */
-.bar-track, .bar-fill                                     /* thanh kết quả */
-.modal-bg, .modal-box                                     /* popup */
-.spinner, .live-dot, .live-badge                          /* loading, realtime indicator */
-.code-input                                               /* ô nhập 6 số (font lớn, monospace) */
-.fade-enter-active, .fade-leave-to                        /* animation chuyển trang */
+**Backend:**
+```
+1. Validate ✓
+
+2. Phát hiện questionType = "Rating"
+   → options = [] (KHÔNG tạo Options nào)
+
+3. INSERT vào DB:
+   Polls:
+     Id=3, Code="345678", Question="Rate our service",
+     QuestionType="Rating", ...
+   
+   Options:
+     (Không có row nào)
 ```
 
 ---
 
-## 11. VoterToken — Chống vote 2 lần
+#### Loại 4: Open Text
 
-Dự án không có đăng nhập nhưng vẫn ngăn 1 người vote 2 lần bằng cách kết hợp **localStorage** (client) và **DB check** (server).
-
-### Dữ liệu lưu trong localStorage
-
-| Key | Ví dụ giá trị | Mục đích |
-|---|---|---|
-| `poll_voter_token` | `"voter_47291038"` | Token định danh thiết bị, tạo 1 lần, dùng mãi |
-| `voted_482931` | `"true"` | Đánh dấu đã vote poll `482931` |
-| `createdPolls` | `'["482931","193847"]'` | Danh sách poll mình đã tạo (kiểm tra quyền creator) |
-
-### Luồng chống trùng
-
+**Frontend:**
 ```
-Lần 1 (chưa vote):
-  localStorage['poll_voter_token'] không có
-  → Tạo "voter_47291038" → lưu vào localStorage
-  → Gửi vote kèm token
-  → Server kiểm tra DB: không tìm thấy (PollCode="482931", VoterToken="voter_47291038")
-  → Lưu vote → thành công
-  → localStorage['voted_482931'] = 'true'
+POST /api/polls {
+  code: "901234",
+  question: "What do you think?",
+  questionType: "Open Text",
+  expireAt: "2026-08-10T05:00:00Z",
+  options: []
+}
+```
 
-Lần 2 (cùng trình duyệt):
-  VoteView load → check localStorage['voted_482931'] === 'true'
-  → Hiện "Already Voted" ngay, không gọi API
+**Backend:**
+```
+1. Validate ✓
 
-Lần 2 (localStorage bị xóa nhưng token vẫn còn):
-  → Gửi vote lên server với token cũ
-  → Server tìm thấy (PollCode="482931", VoterToken="voter_47291038")
-  → 400 "You have already voted."
-  → VoteView hiện "Already Voted"
+2. Phát hiện questionType = "Open Text"
+   → options = [] (KHÔNG tạo Options)
 
-Lần 2 (xóa hoàn toàn cache, token mới):
-  → Token mới "voter_93847271" → gửi vote
-  → Server không tìm thấy → cho vote
-  (Hạn chế chấp nhận được của giải pháp không có account)
+3. INSERT vào DB:
+   Polls:
+     Id=4, Code="901234", Question="What do you think?",
+     QuestionType="Open Text", ...
+   
+   Options:
+     (Không có row nào)
 ```
 
 ---
 
-## 12. Migration files — EF Core
+### 7.2 User Vote
 
-### EF Core Migrations là gì?
+#### Vote Multiple Choice
 
-EF Core Migrations là hệ thống quản lý schema database bằng code (code-first). Thay vì viết SQL `CREATE TABLE` thủ công, bạn:
-1. Định nghĩa Model class (C#)
-2. Chạy `dotnet ef migrations add TenMigration` → EF Core **tự generate file migration** mô tả cần làm gì với DB
-3. Chạy `dotnet ef database update` → EF Core **chạy migration** để áp dụng thay đổi vào DB
+**Frontend VoteView:**
+```
+1. Load poll: GET /api/polls/check/123456
+   → Nhận: { id:1, code:"123456", questionType:"Multiple Choice", 
+            options:[{id:1,text:"Vue.js"}, ...] }
 
-### Giải thích từng file trong `Migrations/`
+2. User click nút "Vue.js" (optionId = 1)
 
-Lấy ví dụ PollService (`Migrations/20260724153429_InitialCreate.cs`):
+3. Submit:
+   POST /api/votes {
+     pollCode: "123456",
+     voterToken: "voter_47291038",
+     optionId: 1,
+     voteValue: ""
+   }
+```
+
+**Backend VoteService:**
+```
+1. Chống vote 2 lần:
+   SELECT * FROM Votes 
+   WHERE PollCode='123456' AND VoterToken='voter_47291038'
+   → Không tìm thấy ✓
+
+2. Validate poll:
+   HTTP GET https://localhost:5001/api/Polls/check/123456
+   → PollService trả 200 OK ✓
+
+3. Lưu vote:
+   INSERT INTO Votes VALUES (
+     PollCode='123456',
+     OptionId=1,
+     VoteValue='',
+     VoterToken='voter_47291038',
+     CreatedAt='2026-08-02T07:05:00'
+   )
+
+4. Tính kết quả:
+   SELECT OptionId, COUNT(*) FROM Votes WHERE PollCode='123456' GROUP BY OptionId
+   → [{optionId:1, voteCount:1}]
+
+5. Broadcast SignalR:
+   hubContext.Clients.Group("poll_123456")
+     .SendAsync("VoteUpdated", {
+       pollCode: "123456",
+       totalVotes: 1,
+       voteResults: [{optionId:1, voteCount:1}]
+     })
+
+6. Fire-and-forget Analytics:
+   POST https://localhost:5003/api/Analytics {
+     pollCode: "123456",
+     optionId: 1,
+     voteTime: "2026-08-02T07:05:00Z"
+   }
+
+7. Trả về: 200 OK { message: "Vote submitted successfully!" }
+```
+
+**Frontend nhận response:**
+```
+1. localStorage.setItem('voted_123456', 'true')
+2. alreadyVoted.value = true
+3. Hiển thị confetti + kết quả
+```
+
+**AnalyticsView (đang mở) nhận SignalR event:**
+```
+hubConnection.on('VoteUpdated', data => {
+  totalVotes.value = data.totalVotes  // 1
+  voteResults.value = data.voteResults  // [{optionId:1, voteCount:1}]
+  // Chart tự động update vì Vue reactive
+})
+```
+
+---
+
+#### Vote Rating (4 sao)
+
+**Frontend:**
+```
+POST /api/votes {
+  pollCode: "345678",
+  voterToken: "voter_47291038",
+  optionId: 0,  ← Không có option, để 0
+  voteValue: "4"  ← Số sao dạng string
+}
+```
+
+**Backend lưu:**
+```
+INSERT INTO Votes VALUES (
+  PollCode='345678',
+  OptionId=0,
+  VoteValue='4',
+  VoterToken='voter_47291038',
+  CreatedAt='2026-08-02T07:10:00'
+)
+```
+
+**AnalyticsView tính trung bình:**
+```
+GET /api/votes/list/345678
+→ [
+    { optionId:0, voteValue:"5" },
+    { optionId:0, voteValue:"4" },
+    { optionId:0, voteValue:"3" }
+  ]
+
+avg = (5 + 4 + 3) / 3 = 4.0
+```
+
+---
+
+#### Vote Open Text
+
+**Frontend:**
+```
+POST /api/votes {
+  pollCode: "901234",
+  voterToken: "voter_47291038",
+  optionId: 0,
+  voteValue: "Vue is amazing!"
+}
+```
+
+**Backend lưu:**
+```
+INSERT INTO Votes VALUES (
+  PollCode='901234',
+  OptionId=0,
+  VoteValue='Vue is amazing!',
+  VoterToken='voter_47291038',
+  CreatedAt='2026-08-02T07:15:00'
+)
+```
+
+**AnalyticsView hiển thị:**
+```
+GET /api/votes/list/901234
+→ [
+    { voteValue: "Vue is amazing!", createdAt: "..." },
+    { voteValue: "I prefer React", createdAt: "..." }
+  ]
+
+Render:
+  📝 Vue is amazing!
+  📝 I prefer React
+```
+
+---
+
+### 7.3 Đóng Poll
+
+**Frontend (AnalyticsView):**
+```
+1. Creator click "Close Poll"
+2. Confirm dialog → OK
+
+3. PUT /api/polls/code/123456 {
+     id: 1,
+     code: "123456",
+     question: "...",
+     questionType: "Multiple Choice",
+     status: "Closed",  ← Thay đổi từ "Active"
+     expireAt: "...",
+     options: []
+   }
+```
+
+**Backend PollService:**
+```
+1. Tìm poll: SELECT * FROM Polls WHERE Code='123456'
+   → poll.Status hiện tại = "Active"
+
+2. Phát hiện status thay đổi:
+   bool statusChanged = (existingPoll.Status != newPoll.Status)
+   → statusChanged = true
+
+3. Cập nhật DB:
+   UPDATE Polls SET Status='Closed' WHERE Id=1
+
+4. Vì statusChanged && newStatus='Closed':
+   → Gọi VoteService:
+     POST https://localhost:5002/api/votes/broadcast-poll-closed {
+       pollCode: "123456"
+     }
+
+5. VoteService phát SignalR:
+   hubContext.Clients.Group("poll_123456")
+     .SendAsync("PollClosed", {
+       pollCode: "123456",
+       status: "Closed"
+     })
+
+6. Trả về: 204 No Content
+```
+
+**Clients nhận SignalR event:**
+
+**VoteView (đang mở):**
+```
+hubConnection.on('PollClosed', data => {
+  showClosedBanner.value = true
+  // Hiện banner đỏ: "This poll has ended"
+  // Disable tất cả nút vote
+})
+```
+
+**AnalyticsView (đang mở):**
+```
+hubConnection.on('PollClosed', data => {
+  poll.value.status = 'Closed'
+  // Badge đổi từ "Active" (xanh) → "Closed" (đỏ)
+})
+```
+
+**User cố vote sau khi đóng:**
+```
+POST /api/votes {...}
+→ VoteService: GET /api/polls/check/123456
+→ PollService: status='Closed' → trả 400 "Poll is closed."
+→ VoteService: nhận 400 → trả 400 "Poll is invalid or has been closed."
+→ Frontend: toast.error("Poll is invalid or has been closed.")
+```
+
+---
+
+### 7.4 Xóa Poll
+
+**Frontend (AnalyticsView):**
+```
+1. Creator click "Delete Poll"
+2. Confirm "Delete permanently?" → OK
+
+3. DELETE /api/polls/code/123456
+```
+
+**Backend PollService:**
+```
+1. Tìm poll kèm options:
+   SELECT * FROM Polls WHERE Code='123456'
+   INCLUDE SELECT * FROM Options WHERE PollId=1
+
+2. Xóa poll:
+   DELETE FROM Polls WHERE Id=1
+   → CASCADE tự động xóa:
+      DELETE FROM Options WHERE PollId=1
+
+3. Gọi VoteService xóa votes:
+   DELETE https://localhost:5002/api/votes/by-poll-code/123456
+   
+   VoteService:
+     SELECT * FROM Votes WHERE PollCode='123456'
+     → Tìm thấy 10 votes
+     DELETE FROM Votes WHERE PollCode='123456'
+     → Xóa 10 rows
+
+4. AnalyticsDB KHÔNG động đến (audit log giữ lại)
+
+5. Trả về: 204 No Content
+```
+
+**Frontend nhận 204:**
+```
+1. Xóa code khỏi localStorage:
+   const saved = JSON.parse(localStorage['createdPolls'])  // ["123456", "789012"]
+   const updated = saved.filter(c => c !== "123456")       // ["789012"]
+   localStorage['createdPolls'] = JSON.stringify(updated)
+
+2. toast.success('Poll deleted')
+
+3. router.push('/') → Về trang chủ
+```
+
+**Tổng kết những gì bị xóa:**
+
+| Database | Bảng | Hành động | Số rows |
+|----------|------|-----------|---------|
+| PollDB | `Polls` | DELETE | 1 row |
+| PollDB | `Options` | CASCADE DELETE | 3 rows (Vue, React, Angular) |
+| VoteDB | `Votes` | DELETE qua HTTP | 10 rows |
+| AnalyticsDB | `Analytics` | **KHÔNG xóa** | 10 rows giữ nguyên |
+| localStorage | `createdPolls` | Array.filter() | Xóa "123456" |
+| localStorage | `voted_123456` | **KHÔNG xóa** | Giữ nguyên (harmless) |
+
+
+---
+
+## 8. Migration Files
+
+### 8.1 Migration là gì?
+
+**Entity Framework Core Migration** = file code C# mô tả thay đổi schema database.
+
+Thay vì viết SQL thủ công:
+```sql
+CREATE TABLE Polls (
+  Id INT PRIMARY KEY IDENTITY(1,1),
+  Code NVARCHAR(MAX) NOT NULL,
+  ...
+)
+```
+
+EF Core tự sinh code C# từ model:
+```csharp
+public partial class InitialCreate : Migration
+{
+    protected override void Up(MigrationBuilder migrationBuilder)
+    {
+        migrationBuilder.CreateTable(
+            name: "Polls",
+            columns: table => new
+            {
+                Id = table.Column<int>(nullable: false)
+                    .Annotation("SqlServer:Identity", "1, 1"),
+                Code = table.Column<string>(nullable: false),
+                ...
+            });
+    }
+    
+    protected override void Down(MigrationBuilder migrationBuilder)
+    {
+        migrationBuilder.DropTable(name: "Polls");
+    }
+}
+```
+
+### 8.2 Tại sao có Migration?
+
+**Vấn đề không dùng Migration:**
+1. Developer A tạo bảng `Polls` bằng SQL script
+2. Developer B không biết phải chạy script nào
+3. Production database khác Development
+4. Không theo dõi được lịch sử thay đổi schema
+
+**Giải pháp dùng Migration:**
+1. Developer A thay đổi `Poll.cs` model
+2. Chạy `dotnet ef migrations add AddExpireAt`
+3. EF Core tự sinh file migration
+4. Developer B pull code → chạy `dotnet ef database update`
+5. Database tự động cập nhật
+
+### 8.3 File Migration trong project
+
+**PollService/Migrations/20260724153449_InitialCreate.cs:**
 
 ```csharp
 public partial class InitialCreate : Migration
 {
-    // Up() chạy khi "dotnet ef database update" (áp dụng migration)
+    // Up() chạy khi apply migration
     protected override void Up(MigrationBuilder migrationBuilder)
     {
         // Tạo bảng Polls
         migrationBuilder.CreateTable(
             name: "Polls",
-            columns: table => new {
+            columns: table => new
+            {
                 Id = table.Column<int>(nullable: false)
-                    .Annotation("SqlServer:Identity", "1, 1"),  // AUTO INCREMENT
+                    .Annotation("SqlServer:Identity", "1, 1"),
                 Code = table.Column<string>(nullable: false),
-                ...
+                Question = table.Column<string>(nullable: false),
+                QuestionType = table.Column<string>(nullable: false),
+                Status = table.Column<string>(nullable: false),
+                ExpireAt = table.Column<DateTime>(nullable: false),
+                CreatedAt = table.Column<DateTime>(nullable: false)
             },
-            constraints: table => {
+            constraints: table =>
+            {
                 table.PrimaryKey("PK_Polls", x => x.Id);
             });
 
         // Tạo bảng Options
-        migrationBuilder.CreateTable(name: "Options", ...);
+        migrationBuilder.CreateTable(
+            name: "Options",
+            columns: table => new
+            {
+                Id = table.Column<int>(nullable: false)
+                    .Annotation("SqlServer:Identity", "1, 1"),
+                PollId = table.Column<int>(nullable: false),
+                Text = table.Column<string>(nullable: false)
+            },
+            constraints: table =>
+            {
+                table.PrimaryKey("PK_Options", x => x.Id);
+                table.ForeignKey(
+                    name: "FK_Options_Polls_PollId",
+                    column: x => x.PollId,
+                    principalTable: "Polls",
+                    principalColumn: "Id",
+                    onDelete: ReferentialAction.Cascade);  // CASCADE DELETE
+            });
 
-        // Tạo Foreign Key: Options.PollId → Polls.Id (CASCADE DELETE)
-        table.ForeignKey(
-            name: "FK_Options_Polls_PollId",
-            column: x => x.PollId,
-            principalTable: "Polls",
-            principalColumn: "Id",
-            onDelete: ReferentialAction.Cascade);
-
-        // Tạo Index trên Options.PollId (tăng tốc JOIN)
+        // Tạo index
         migrationBuilder.CreateIndex(
             name: "IX_Options_PollId",
             table: "Options",
             column: "PollId");
     }
 
-    // Down() chạy khi rollback migration (undo)
+    // Down() chạy khi rollback migration
     protected override void Down(MigrationBuilder migrationBuilder)
     {
-        migrationBuilder.DropTable(name: "Options");  // phải xóa Options trước (FK)
+        migrationBuilder.DropTable(name: "Options");
         migrationBuilder.DropTable(name: "Polls");
     }
 }
 ```
 
-### File `*ModelSnapshot.cs`
+**Tên file:** `20260724153449_InitialCreate.cs`
+- `20260724153449` = timestamp (July 24, 2026, 15:34:49)
+- `InitialCreate` = tên migration (developer đặt)
 
-`PollDbContextModelSnapshot.cs` — EF Core dùng để biết trạng thái **hiện tại** của schema. Khi chạy `migrations add` lần sau, EF so sánh Model class với Snapshot để biết cần thêm/sửa/xóa gì. File này được update tự động, không sửa tay.
+### 8.4 File khác trong Migrations/
 
-### File `*.Designer.cs`
+**AnalyticsDbContextModelSnapshot.cs:**
 
-`20260724153429_InitialCreate.Designer.cs` — metadata của migration, dùng để biết migration này được apply ở version schema nào. Không sửa tay.
+File snapshot mô tả schema hiện tại (không phải migration, dùng để detect changes).
 
-### Lệnh Migration quan trọng
+```csharp
+protected override void BuildModel(ModelBuilder modelBuilder)
+{
+    modelBuilder.Entity("AnalyticsService.Models.Analytics", b =>
+    {
+        b.Property<int>("Id").ValueGeneratedOnAdd();
+        b.Property<string>("PollCode").IsRequired();
+        b.Property<int>("OptionId");
+        b.Property<DateTime>("VoteTime");
+        b.HasKey("Id");
+        b.ToTable("Analytics");
+    });
+}
+```
+
+Khi bạn sửa model, EF Core so sánh với snapshot để biết cần tạo migration nào.
+
+### 8.5 Lệnh Migration
+
+#### Tạo migration mới
 
 ```bash
-# Tạo migration mới (khi thêm field vào Model)
-dotnet ef migrations add TenMigration --project PollService
+dotnet ef migrations add AddNewColumn --project PollService
+```
 
-# Apply migration vào DB (tạo/cập nhật bảng)
+**Khi nào dùng:**
+- Thêm/xóa/sửa property trong model
+- Thêm/xóa bảng
+
+**Output:** Tạo file mới trong `Migrations/`
+
+#### Apply migration lên database
+
+```bash
 dotnet ef database update --project PollService
-
-# Xem trạng thái migrations nào đã apply
-dotnet ef migrations list --project PollService
-
-# Rollback về migration trước
-dotnet ef database update TenMigrationTruoc --project PollService
-
-# Xóa migration chưa apply
-dotnet ef migrations remove --project PollService
-
-# Cài dotnet-ef tool (nếu chưa có)
-dotnet tool install --global dotnet-ef
 ```
 
----
+**Khi nào dùng:**
+- Lần đầu chạy project (tạo database)
+- Sau khi pull code có migration mới
+- Deploy lên server mới
 
-## 13. Dockerfile & Containerization
+**EF Core sẽ:**
+1. Kết nối database
+2. Kiểm tra bảng `__EFMigrationsHistory` (lưu migration nào đã apply)
+3. Chạy migration chưa apply (theo thứ tự timestamp)
 
-Mỗi service có 1 `Dockerfile` riêng. Không có `docker-compose.yml` (chạy độc lập từng container).
+#### Xem SQL migration sẽ chạy
 
-### Dockerfile mẫu (format chuẩn .NET 8)
+```bash
+dotnet ef migrations script --project PollService
+```
 
+**Output:** File SQL có thể chạy thủ công trong SQL Server Management Studio.
+
+#### Rollback migration
+
+```bash
+dotnet ef database update PreviousMigrationName --project PollService
+```
+
+Chạy `Down()` của migration sau đó.
+
+### 8.6 Bảng __EFMigrationsHistory
+
+EF Core tự tạo bảng này để tracking:
+
+| MigrationId | ProductVersion |
+|-------------|----------------|
+| 20260724153449_InitialCreate | 8.0.0 |
+| 20260725120000_AddExpireAt | 8.0.0 |
+
+Khi chạy `dotnet ef database update`:
+1. Đọc bảng này → biết `InitialCreate` đã apply
+2. Tìm migration mới hơn trong code
+3. Apply migration mới → INSERT row mới vào bảng
+
+### 8.7 Docker — Migration tự động
+
+**Trong Docker Compose**, migration chạy tự động khi container start:
+
+**Option 1:** Environment variable
+```yaml
+services:
+  poll-service:
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+```
+
+**Option 2:** Command trong Dockerfile
 ```dockerfile
-FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base   # runtime image
-WORKDIR /app
-EXPOSE 80
-
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build      # build image
-WORKDIR /src
-COPY ["PollService/PollService.csproj", "PollService/"]
-RUN dotnet restore "PollService/PollService.csproj"
-COPY . .
-WORKDIR "/src/PollService"
-RUN dotnet build -c Release -o /app/build
-
-FROM build AS publish
-RUN dotnet publish -c Release -o /app/publish
-
-FROM base AS final                                   # final image nhỏ (chỉ có runtime)
-WORKDIR /app
-COPY --from=publish /app/publish .
-ENTRYPOINT ["dotnet", "PollService.dll"]
+# Thêm vào Dockerfile
+RUN dotnet ef database update
 ```
 
-### Build Docker image
+**Option 3:** Code trong Program.cs (recommend)
+```csharp
+var app = builder.Build();
 
-```bash
-# Build từ root của solution (cần context rộng vì Dockerfile dùng COPY . .)
-docker build -t pollservice -f PollService/Dockerfile .
-docker build -t voteservice -f VoteService/Dockerfile .
-docker build -t analyticsservice -f AnalyticsService/Dockerfile .
-docker build -t ocelotgateway -f OcelotGateway/Dockerfile .
+// Tự động apply migrations khi app start
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<PollDbContext>();
+    db.Database.Migrate();  // Apply pending migrations
+}
+
+app.Run();
 ```
 
-### Chạy container
-
-```bash
-# Chạy PollService (container kết nối SQL Server ở host)
-docker run -d -p 5001:80 \
-  -e "ConnectionStrings__DefaultConnection=Server=host.docker.internal;Database=PollDB;..." \
-  pollservice
-
-# Tương tự cho VoteService (:5002), AnalyticsService (:5003), OcelotGateway (:5000)
-```
-
-> Hiện tại dự án chưa có `docker-compose.yml`. Để chạy toàn bộ với Docker, cần tạo compose file hoặc chạy thủ công từng container.
-
-### Export / Import Docker image (chuyển máy)
-
-```bash
-# Export image ra file .tar
-docker save -o pollservice.tar pollservice
-docker save -o voteservice.tar voteservice
-docker save -o analyticsservice.tar analyticsservice
-docker save -o ocelotgateway.tar ocelotgateway
-
-# Import trên máy khác
-docker load -i pollservice.tar
-docker load -i voteservice.tar
-docker load -i analyticsservice.tar
-docker load -i ocelotgateway.tar
-
-# Chạy bình thường sau khi import
-docker run -d -p 5001:80 pollservice
-```
-
-### Cài Docker
-
-- **Windows:** Tải [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/) → cài đặt → restart
-- **Kiểm tra sau cài:** `docker --version` → `Docker version 26.x.x`
+**Ưu điểm:** Không cần chạy lệnh thủ công mỗi lần deploy.
 
 ---
 
-## 14. Hướng dẫn chạy dự án
+## 9. Cài đặt Docker
 
-### Yêu cầu môi trường
+### 9.1 Cài Docker Desktop
 
-| Tool | Version | Cài ở đâu |
-|---|---|---|
-| .NET 8 SDK | 8.0+ | https://dotnet.microsoft.com/download/dotnet/8 |
-| Node.js | 18+ | https://nodejs.org/ |
-| npm | đi kèm Node.js | — |
-| SQL Server LocalDB | Đi kèm Visual Studio | Hoặc cài riêng: SQL Server Express |
-| dotnet-ef tool | latest | `dotnet tool install --global dotnet-ef` |
+**Windows:**
+1. Tải Docker Desktop: https://www.docker.com/products/docker-desktop/
+2. Cài đặt (yêu cầu Windows 10/11 Pro hoặc WSL2)
+3. Khởi động Docker Desktop
+4. Kiểm tra: Mở CMD, chạy `docker --version`
 
-Kiểm tra:
+**Mac:**
+1. Tải Docker Desktop for Mac (Intel hoặc Apple Silicon)
+2. Cài đặt
+3. Khởi động Docker Desktop
+4. Kiểm tra: `docker --version`
+
+### 9.2 Chạy project bằng Docker Compose
+
+**Bước 1: Clone code**
 ```bash
-dotnet --version    # phải >= 8.0
-node --version      # phải >= 18
-npm --version
-dotnet ef           # nếu lỗi: dotnet tool install --global dotnet-ef
+git clone <repo-url>
+cd poll-survey
 ```
+
+**Bước 2: Tạo file .env**
+```bash
+# Sao chép từ template
+cp .env.example .env
+
+# Hoặc tạo thủ công
+echo SA_PASSWORD=YourStrong@Passw0rd > .env
+```
+
+**Bước 3: Build và chạy**
+```bash
+docker compose up --build
+```
+
+**Giải thích lệnh:**
+- `docker compose up` = khởi động tất cả services
+- `--build` = build lại image từ Dockerfile (lần đầu hoặc có thay đổi code)
+
+**Chờ container start:**
+```
+[+] Running 6/6
+ ✔ Container poll-sqlserver         Healthy
+ ✔ Container poll-service           Started
+ ✔ Container vote-service           Started
+ ✔ Container analytics-service      Started
+ ✔ Container ocelot-gateway         Started
+ ✔ Container poll-client            Started
+```
+
+**Bước 4: Truy cập**
+- Frontend: http://localhost:8081
+- Gateway API: http://localhost:5000
+- SQL Server: `localhost:1433` (user: sa, password: từ .env)
+
+**Bước 5: Dừng containers**
+```bash
+# Dừng nhưng giữ containers
+docker compose stop
+
+# Dừng và xóa containers (giữ volumes)
+docker compose down
+
+# Xóa cả volumes (mất dữ liệu DB)
+docker compose down -v
+```
+
+### 9.3 Export Docker image
+
+**Export toàn bộ images:**
+```bash
+# 1. Xem images đang có
+docker images
+
+# 2. Save từng image
+docker save poll-survey-poll-service:latest -o poll-service.tar
+docker save poll-survey-vote-service:latest -o vote-service.tar
+docker save poll-survey-analytics-service:latest -o analytics-service.tar
+docker save poll-survey-gateway:latest -o gateway.tar
+docker save poll-survey-client:latest -o client.tar
+
+# 3. Nén lại (optional)
+tar -czvf poll-survey-images.tar.gz *.tar
+```
+
+**Chuyển sang máy khác:**
+```bash
+# Copy file .tar sang máy mới (USB, SCP, ...)
+scp poll-survey-images.tar.gz user@other-machine:/tmp/
+
+# Ở máy mới, giải nén và load
+tar -xzvf poll-survey-images.tar.gz
+docker load -i poll-service.tar
+docker load -i vote-service.tar
+docker load -i analytics-service.tar
+docker load -i gateway.tar
+docker load -i client.tar
+
+# Chạy
+docker compose up
+```
+
+### 9.4 Docker Hub (recommend)
+
+**Push lên Docker Hub:**
+```bash
+# 1. Login
+docker login
+
+# 2. Tag images
+docker tag poll-survey-poll-service:latest yourusername/poll-service:latest
+docker tag poll-survey-vote-service:latest yourusername/vote-service:latest
+
+# 3. Push
+docker push yourusername/poll-service:latest
+docker push yourusername/vote-service:latest
+
+# 4. Sửa docker-compose.yml
+services:
+  poll-service:
+    image: yourusername/poll-service:latest
+    # Xóa phần build
+```
+
+**Ở máy khác:**
+```bash
+# Chỉ cần pull và chạy
+docker compose pull
+docker compose up
+```
+
 
 ---
 
-### Bước 1: Clone và restore
+## 10. Chuyển code sang máy khác
 
+### 10.1 Dùng Git (recommend)
+
+**Máy hiện tại:**
 ```bash
-git clone https://github.com/your-repo/poll-survey.git
+# 1. Commit code
+git add .
+git commit -m "Add Docker Compose setup"
+
+# 2. Push lên GitHub/GitLab
+git push origin main
+```
+
+**Máy mới:**
+```bash
+# 1. Clone code
+git clone https://github.com/username/poll-survey.git
 cd poll-survey
 
-# Restore .NET packages cho tất cả projects
-dotnet restore PollSurvey.sln
+# 2. Tạo file .env (QUAN TRỌNG - file này không được commit)
+cp .env.example .env
+# Sửa mật khẩu nếu cần
 
-# Restore frontend packages
+# 3. Chạy bằng Docker
+docker compose up --build
+
+# Hoặc chạy development (cần .NET 8 + Node.js)
+# Backend:
+dotnet restore
+dotnet ef database update --project PollService
+dotnet ef database update --project VoteService
+dotnet ef database update --project AnalyticsService
+dotnet run --project OcelotGateway
+
+# Frontend (terminal khác):
 cd client
 npm install
-cd ..
-```
-
----
-
-### Bước 2: Tạo Database (chỉ lần đầu)
-
-```bash
-# PollService → tạo PollDB với bảng Polls và Options
-cd PollService
-dotnet ef database update
-
-# VoteService → tạo VoteDB với bảng Votes
-cd ..\VoteService
-dotnet ef database update
-
-# AnalyticsService → tạo AnalyticsDB với bảng Analytics
-cd ..\AnalyticsService
-dotnet ef database update
-
-cd ..
-```
-
-Nếu LocalDB chưa có, lệnh này tự tạo file database tại `(localdb)\mssqllocaldb`.  
-Kiểm tra DB đã tạo: mở **SQL Server Object Explorer** trong Visual Studio → `(localdb)\mssqllocaldb` → `Databases`.
-
----
-
-### Bước 3: Chạy Backend (4 terminal riêng)
-
-```bash
-# Terminal 1
-cd PollService && dotnet run
-# Chạy tại: https://localhost:5001
-
-# Terminal 2
-cd VoteService && dotnet run
-# Chạy tại: https://localhost:5002
-
-# Terminal 3
-cd AnalyticsService && dotnet run
-# Chạy tại: https://localhost:5003
-
-# Terminal 4 (sau khi 3 service trên đã khởi động)
-cd OcelotGateway && dotnet run
-# Chạy tại: https://localhost:5000
-```
-
----
-
-### Bước 4: Chạy Frontend
-
-```bash
-cd client
 npm run serve
-# Dev server tại: http://localhost:8080
 ```
 
----
+### 10.2 Copy thủ công (không dùng Git)
 
-### Bước 5: Mở app
+**Máy hiện tại:**
+```
+1. Nén folder project:
+   - Windows: Click phải → Send to → Compressed folder
+   - Mac: Click phải → Compress
 
-Truy cập `http://localhost:8080` trên trình duyệt.
-
-**Chạy nhanh bằng Visual Studio:**
-1. Mở `PollSurvey.sln`
-2. Chuột phải Solution → **Properties** → **Multiple Startup Projects**
-3. Set tất cả 4 project backend → **Start**
-4. Bấm F5
-5. Chạy riêng frontend: `cd client && npm run serve`
-
-**Swagger (test API):**
-- `https://localhost:5001/swagger` — PollService
-- `https://localhost:5002/swagger` — VoteService  
-- `https://localhost:5003/swagger` — AnalyticsService
-
----
-
-## 15. Chuyển máy / Deploy sang máy khác
-
-### Cách 1: Copy source code (khuyến nghị để dev)
-
-**Máy nguồn:**
-```bash
-# Đảm bảo .gitignore loại trừ: bin/, obj/, node_modules/, .vs/
-git add .
-git commit -m "latest changes"
-git push
+2. Copy file .zip sang máy mới (USB, Google Drive, AirDrop...)
 ```
 
-**Máy đích:**
-```bash
-# 1. Cài đặt tools (xem phần Yêu cầu môi trường)
+**Máy mới:**
+```
+1. Giải nén folder
 
-# 2. Clone code
-git clone https://github.com/your-repo/poll-survey.git
+2. Tạo file .env:
+   - Copy .env.example thành .env
+   - Sửa SA_PASSWORD nếu muốn
+
+3. Mở Docker Desktop
+
+4. Mở Terminal trong folder project
+
+5. Chạy: docker compose up --build
+
+6. Truy cập: http://localhost:8081
+```
+
+### 10.3 Development setup (không dùng Docker)
+
+**Yêu cầu:**
+- .NET SDK 8.0: https://dotnet.microsoft.com/download/dotnet/8.0
+- Node.js 18+: https://nodejs.org/
+- SQL Server LocalDB (có sẵn trong Visual Studio) hoặc SQL Server Express
+
+**Bước 1: Clone/copy code**
+```bash
+git clone <repo> hoặc copy folder
 cd poll-survey
-
-# 3. Restore dependencies
-dotnet restore PollSurvey.sln
-cd client && npm install && cd ..
-
-# 4. Tạo database (SQL Server LocalDB phải được cài sẵn)
-cd PollService && dotnet ef database update && cd ..
-cd VoteService && dotnet ef database update && cd ..
-cd AnalyticsService && dotnet ef database update && cd ..
-
-# 5. Chạy (4 terminal như Bước 3 ở trên)
 ```
 
-**Lưu ý Connection String:** File `appsettings.json` mỗi service có:
-```json
-"DefaultConnection": "Server=(localdb)\\mssqllocaldb;Database=PollDB;..."
-```
-Nếu máy đích dùng SQL Server khác (không phải LocalDB), sửa connection string cho phù hợp.
-
----
-
-### Cách 2: Build production và copy file
-
-**Máy nguồn — Build:**
+**Bước 2: Backend**
 ```bash
-# Build frontend
-cd client
-npm run build
-# Output: client/dist/
+# Restore NuGet packages
+dotnet restore
 
-# Build và publish backend (tạo thư mục chạy được, không cần cài SDK trên máy đích)
-dotnet publish PollService -c Release -o ./publish/PollService
-dotnet publish VoteService -c Release -o ./publish/VoteService
-dotnet publish AnalyticsService -c Release -o ./publish/AnalyticsService
-dotnet publish OcelotGateway -c Release -o ./publish/OcelotGateway
-```
-
-**Máy đích:**
-```bash
-# Chỉ cần cài .NET 8 Runtime (không cần SDK hay Node.js)
-# Tải: https://dotnet.microsoft.com/download/dotnet/8
-
-# Copy thư mục publish/ sang máy đích
-
-# Cập nhật connection string trong appsettings.json của từng service
-
-# Tạo database (phải có dotnet-ef hoặc chạy script SQL thủ công)
-
-# Chạy:
-./publish/PollService/PollService.exe        # Windows
-./publish/VoteService/VoteService.exe
-./publish/AnalyticsService/AnalyticsService.exe
-./publish/OcelotGateway/OcelotGateway.exe
-```
-
----
-
-### Cách 3: Docker (nếu cần chạy trong container)
-
-```bash
-# Máy nguồn — Build và export images
-docker build -t pollservice -f PollService/Dockerfile .
-docker build -t voteservice -f VoteService/Dockerfile .
-docker build -t analyticsservice -f AnalyticsService/Dockerfile .
-docker build -t ocelotgateway -f OcelotGateway/Dockerfile .
-
-docker save -o images.tar pollservice voteservice analyticsservice ocelotgateway
-
-# Máy đích
-# Cài Docker Desktop
-docker load -i images.tar
-
-# Chạy (cần SQL Server riêng, cập nhật connection string qua -e)
-docker run -d -p 5001:80 -e "ConnectionStrings__DefaultConnection=Server=...;Database=PollDB;..." pollservice
-docker run -d -p 5002:80 -e "ConnectionStrings__DefaultConnection=Server=...;Database=VoteDB;..." \
-           -e "Services__PollServiceUrl=http://host.docker.internal:5001" \
-           -e "Services__AnalyticsServiceUrl=http://host.docker.internal:5003" voteservice
-docker run -d -p 5003:80 -e "ConnectionStrings__DefaultConnection=Server=...;Database=AnalyticsDB;..." analyticsservice
-docker run -d -p 5000:80 ocelotgateway
-```
-
----
-
-### Troubleshooting thường gặp
-
-**`dotnet ef` không tìm thấy:**
-```bash
-dotnet tool install --global dotnet-ef
-# Restart terminal sau khi cài
-```
-
-**Lỗi SSL certificate (HTTPS localhost):**
-```bash
-dotnet dev-certs https --trust
-# Bấm Yes để trust certificate
-```
-
-**Frontend không kết nối được backend:**
-- Kiểm tra cả 4 service đã chạy chưa
-- Kiểm tra `api.js` `baseURL: 'https://localhost:5000'` khớp với OcelotGateway port
-- Kiểm tra CORS: PollService chỉ cho phép `http://localhost:8080`
-
-**SignalR không kết nối được:**
-- VoteService CORS phải cho phép cả `http://localhost:8080` và `AllowCredentials()`
-- `usePollHub.js` hard-code `https://localhost:5002` — nếu VoteService chạy port khác phải sửa
-
-**LocalDB không chạy:**
-```bash
-# Khởi động LocalDB instance
-sqllocaldb start mssqllocaldb
-
-# Kiểm tra trạng thái
-sqllocaldb info mssqllocaldb
-```
-
----
-
-## Tóm tắt nhanh các lệnh
-
-```bash
-# Cài tools lần đầu
-dotnet tool install --global dotnet-ef
-cd client && npm install && cd ..
-
-# Tạo DB lần đầu
+# Tạo database và tables (chạy cho 3 service)
 dotnet ef database update --project PollService
 dotnet ef database update --project VoteService
 dotnet ef database update --project AnalyticsService
 
-# Chạy dev (4 terminal)
-cd PollService && dotnet run          # :5001
-cd VoteService && dotnet run          # :5002
-cd AnalyticsService && dotnet run     # :5003
-cd OcelotGateway && dotnet run        # :5000
-cd client && npm run serve            # :8080
-
-# Build production frontend
-cd client && npm run build
-
-# Build production backend
-dotnet publish PollSurvey.sln -c Release -o ./publish
+# Kiểm tra database đã tạo:
+# - Mở SQL Server Management Studio
+# - Connect: (localdb)\mssqllocaldb
+# - Xem databases: PollDB, VoteDB, AnalyticsDB
 ```
+
+**Bước 3: Chạy backend services (4 terminal)**
+
+Terminal 1 — PollService:
+```bash
+cd PollService
+dotnet run
+# Output: Now listening on: https://localhost:5001
+```
+
+Terminal 2 — VoteService:
+```bash
+cd VoteService
+dotnet run
+# Output: Now listening on: https://localhost:5002
+```
+
+Terminal 3 — AnalyticsService:
+```bash
+cd AnalyticsService
+dotnet run
+# Output: Now listening on: https://localhost:5003
+```
+
+Terminal 4 — OcelotGateway:
+```bash
+cd OcelotGateway
+dotnet run
+# Output: Now listening on: https://localhost:5000
+```
+
+**Bước 4: Frontend**
+
+Terminal 5:
+```bash
+cd client
+npm install
+npm run serve
+# Output: Local: http://localhost:8080
+```
+
+**Bước 5: Truy cập**
+- Mở browser: http://localhost:8080
+
+### 10.4 Troubleshooting
+
+#### Lỗi: Port already in use
+
+```bash
+# Windows
+netstat -ano | findstr :5001
+taskkill /PID <PID> /F
+
+# Mac/Linux
+lsof -ti:5001 | xargs kill -9
+```
+
+#### Lỗi: Database connection failed
+
+**Kiểm tra connection string trong `appsettings.json`:**
+```json
+{
+  "ConnectionStrings": {
+    "DefaultConnection": "Server=(localdb)\\mssqllocaldb;Database=PollDB;Trusted_Connection=True;TrustServerCertificate=True"
+  }
+}
+```
+
+**Nếu dùng SQL Server Express, đổi thành:**
+```json
+"Server=localhost\\SQLEXPRESS;Database=PollDB;Trusted_Connection=True;TrustServerCertificate=True"
+```
+
+#### Lỗi: Cannot connect to SQL Server in Docker
+
+```bash
+# Xem logs
+docker logs poll-sqlserver
+
+# Kiểm tra container healthy
+docker ps
+
+# Nếu không healthy, đổi mật khẩu trong .env
+# Mật khẩu phải có: chữ hoa, chữ thường, số, ký tự đặc biệt
+SA_PASSWORD=YourStrong@Passw0rd123
+```
+
+#### Lỗi: CORS blocked
+
+**Trong Docker:** Frontend phải gọi `http://localhost:5000` (gateway), không gọi trực tiếp service.
+
+**Development:** Kiểm tra `Program.cs` của service có:
+```csharp
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", policy =>
+    {
+        policy.WithOrigins("http://localhost:8080")
+              .AllowAnyHeader()
+              .AllowAnyMethod();
+    });
+});
+```
+
+---
+
+## 11. Các Port và URL
+
+### 11.1 Development (local, không dùng Docker)
+
+| Service | Port | URL | Swagger |
+|---------|------|-----|---------|
+| OcelotGateway | 5000 | https://localhost:5000 | https://localhost:5000/swagger |
+| PollService | 5001 | https://localhost:5001 | https://localhost:5001/swagger |
+| VoteService | 5002 | https://localhost:5002 | https://localhost:5002/swagger |
+| AnalyticsService | 5003 | https://localhost:5003 | https://localhost:5003/swagger |
+| Vue Dev Server | 8080 | http://localhost:8080 | - |
+| SQL Server | 1433 | (localdb)\mssqllocaldb | - |
+
+**Frontend gọi API qua:**
+- HTTP: Gateway `https://localhost:5000/api/*`
+- SignalR: Trực tiếp `https://localhost:5002/hubs/vote`
+
+---
+
+### 11.2 Docker Compose (production)
+
+| Service | Container Name | Internal Port | External Port | URL từ host |
+|---------|---------------|---------------|---------------|-------------|
+| Gateway | ocelot-gateway | 8080 | 5000 | http://localhost:5000 |
+| PollService | poll-service | 8080 | 5001 | http://localhost:5001 |
+| VoteService | vote-service | 8080 | 5002 | http://localhost:5002 |
+| AnalyticsService | analytics-service | 8080 | 5003 | http://localhost:5003 |
+| Vue Client | poll-client | 80 | 8081 | http://localhost:8081 |
+| SQL Server | poll-sqlserver | 1433 | 1433 | localhost:1433 |
+
+**Internal network (container ↔ container):**
+- Gateway → PollService: `http://poll-service:8080`
+- VoteService → PollService: `http://poll-service:8080`
+- VoteService → AnalyticsService: `http://analytics-service:8080`
+
+**Frontend trong Docker:**
+- Client → Gateway: `http://localhost:5000` (từ browser host)
+- Client → SignalR: `http://localhost:5002/hubs/vote`
+
+---
+
+### 11.3 Kiểm tra port đang chạy
+
+**Windows:**
+```bash
+netstat -ano | findstr :5001
+```
+
+**Mac/Linux:**
+```bash
+lsof -i :5001
+```
+
+**Docker:**
+```bash
+docker ps
+# Cột PORTS hiển thị mapping: 0.0.0.0:5001->8080/tcp
+```
+
+---
+
+## 12. Tổng kết
+
+### 12.1 Tech stack
+
+**Backend:**
+- ASP.NET Core 8.0 Web API
+- Entity Framework Core 8.0 (ORM)
+- SQL Server 2022 (3 databases)
+- SignalR (WebSocket realtime)
+- Ocelot 23.3 (API Gateway)
+
+**Frontend:**
+- Vue 3 Composition API
+- Vue Router 4
+- Axios (HTTP client)
+- @microsoft/signalr (realtime client)
+- TailwindCSS + Custom CSS
+- QRCode.js
+
+**DevOps:**
+- Docker + Docker Compose
+- Multi-stage Dockerfile
+- NGINX (serve Vue production)
+
+### 12.2 Design patterns
+
+- **Microservices Architecture** — 3 service độc lập
+- **API Gateway Pattern** — Single entry point
+- **Database per Service** — Mỗi service có DB riêng
+- **Event-driven** — SignalR push events
+- **Repository Pattern** — DbContext như repository
+- **Dependency Injection** — ASP.NET Core built-in DI
+
+### 12.3 Workflow tóm tắt
+
+```
+Tạo poll → Lưu PollDB → Chia sẻ code
+                             ↓
+User join → Validate poll → Vote → Lưu VoteDB
+                                      ↓
+                          Tính kết quả → Broadcast SignalR
+                                      ↓
+                          Fire-and-forget → Lưu AnalyticsDB
+                                      ↓
+                          Dashboard nhận event → UI update
+```
+
+### 12.4 Bảo mật
+
+**Hiện tại (demo):**
+- Không có authentication/authorization
+- Voter token chỉ chống vote 2 lần cơ bản
+- Không mã hóa database
+- CORS cho phép mọi origin (development)
+
+**Cần cải thiện cho production:**
+- JWT authentication cho creator
+- Rate limiting (chống spam vote)
+- HTTPS bắt buộc
+- Input sanitization (XSS)
+- SQL injection đã được EF Core ngăn chặn
+- Environment variables cho secrets
+- CORS config strict
+
+### 12.5 Mở rộng
+
+**Tính năng có thể thêm:**
+- User authentication (Google, GitHub OAuth)
+- Poll templates
+- Export results (PDF, Excel)
+- Poll scheduling (tự đóng theo lịch)
+- Vote analytics dashboard nâng cao
+- Email notification
+- Multi-language support
+- Dark mode
+
+**Scale:**
+- Redis cache cho kết quả vote
+- Message queue (RabbitMQ, Kafka)
+- Load balancer (multiple instances)
+- CDN cho static files
+- Database replication
+
+---
