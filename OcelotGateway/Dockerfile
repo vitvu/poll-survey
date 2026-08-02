@@ -27,4 +27,6 @@ RUN dotnet publish "./OcelotGateway.csproj" -c $BUILD_CONFIGURATION -o /app/publ
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
+# Copy ocelot config files (ocelot.json đã được publish, copy thêm ocelot.Production.json)
+COPY OcelotGateway/ocelot.Production.json .
 ENTRYPOINT ["dotnet", "OcelotGateway.dll"]

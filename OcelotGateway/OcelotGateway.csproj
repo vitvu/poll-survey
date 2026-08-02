@@ -6,7 +6,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>3374b34a-f924-424e-b95d-acbf794900cc</UserSecretsId>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
-    <!-- Trỏ wwwroot về thư mục client -->
     <ContentRoot>$(MSBuildProjectDirectory)</ContentRoot>
   </PropertyGroup>
 
@@ -16,7 +15,6 @@
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
   </ItemGroup>
 
-  <!-- Copy client files vào wwwroot khi build -->
   <ItemGroup>
     <Content Include="..\client\**" CopyToOutputDirectory="PreserveNewest">
       <Link>wwwroot\%(RecursiveDir)%(Filename)%(Extension)</Link>
