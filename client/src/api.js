@@ -79,10 +79,10 @@ export const pollApi = {
   createPoll: data => apiClient.post('/api/polls', data),
 
   // Cập nhật poll (chủ yếu để đóng poll: status: 'Closed') — dùng ở AnalyticsView
-  updatePoll: (id, data) => apiClient.put(`/api/polls/${id}`, data),
+  updatePoll: (code, data) => apiClient.put(`/api/polls/code/${code}`, data),
 
   // Xóa poll — dùng ở AnalyticsView khi bấm Delete
-  deletePoll: id => apiClient.delete(`/api/polls/${id}`),
+  deletePoll: code => apiClient.delete(`/api/polls/code/${code}`),
 
   // ── Vote APIs ─────────────────────────────────────────────────
 

@@ -89,11 +89,11 @@ namespace PollService.Controllers
             return CreatedAtAction(nameof(GetByCode), new { code = poll.Code }, poll);
         }
 
-        // PUT /api/polls/{id} — Update poll (mainly to close poll)
-        [HttpPut("{id:int}")]
-        public async Task<IActionResult> Update(int id, [FromBody] Poll poll)
+        // PUT /api/polls/code/{code} — Update poll (mainly to close poll)
+        [HttpPut("code/{code}")]
+        public async Task<IActionResult> Update(string code, [FromBody] Poll poll)
         {
-            var existing = await _context.Polls.FindAsync(id);
+            var existing = await _context.Polls.FirstOrDefaultAsync(p => p.Code == code);
             if (existing == null) return NotFound();
 
             var statusChanged = existing.Status != poll.Status;
@@ -123,12 +123,12 @@ namespace PollService.Controllers
             return NoContent();
         }
 
-        // DELETE /api/polls/{id} — Delete poll and all associated votes
-        [HttpDelete("{id:int}")]
-        public async Task<IActionResult> Delete(int id)
+        // DELETE /api/polls/code/{code} — Delete poll and all associated votes
+        [HttpDelete("code/{code}")]
+        public async Task<IActionResult> Delete(string code)
         {
             var poll = await _context.Polls.Include(p => p.Options)
-                .FirstOrDefaultAsync(p => p.Id == id);
+                .FirstOrDefaultAsync(p => p.Code == code);
 
             if (poll == null) return NotFound();
 

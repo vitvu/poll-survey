@@ -449,10 +449,10 @@ const stopPoll = async () => {
   confirmStop.value = false  // đóng modal trước khi gọi API
 
   try {
-    // PUT /api/polls/{id}: gửi toàn bộ data poll, chỉ ghi đè status = 'Closed'
+    // PUT /api/polls/code/{code}: gửi toàn bộ data poll, chỉ ghi đè status = 'Closed'
     // Spread {...poll.value} sao chép tất cả field hiện tại, sau đó ghi đè status
     // Ví dụ gửi lên: { id:1, code:'123456', question:'...', status:'Closed', ... }
-    await pollApi.updatePoll(poll.value.id, { ...poll.value, status: 'Closed' })
+    await pollApi.updatePoll(pollCode, { ...poll.value, status: 'Closed' })
 
     // Cập nhật local ngay (không gọi API lại) để badge đổi tức thì không cần chờ
     poll.value.status = 'Closed'
@@ -470,8 +470,8 @@ const deletePoll = async () => {
   confirmDelete.value = false  // đóng modal trước khi gọi API
 
   try {
-    // DELETE /api/polls/{id}: xóa poll và tất cả vote liên quan trong DB
-    await pollApi.deletePoll(poll.value.id)
+    // DELETE /api/polls/code/{code}: xóa poll và tất cả vote liên quan trong DB
+    await pollApi.deletePoll(pollCode)
 
     // Xóa code này khỏi localStorage để trang analytics không còn truy cập được
     const savedCodes = localStorage.getItem('createdPolls')
