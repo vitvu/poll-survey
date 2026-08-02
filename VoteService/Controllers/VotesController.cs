@@ -1,8 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
-using System.Text;
-using System.Text.Json;
 using VoteService.Data;
 using VoteService.Hubs;
 using VoteService.Models;
@@ -28,13 +26,9 @@ namespace VoteService.Controllers
             IConfiguration configuration,
             IHubContext<VoteHub> signalRHubContext)
         {
-            // store database context for use in methods
             _databaseContext = databaseContext;
-            // store http client factory for use in methods
             _httpClientFactory = httpClientFactory;
-            // store configuration for use in methods
             _configuration = configuration;
-            // store signalr hub context for use in methods
             _signalRHubContext = signalRHubContext;
         }
 
@@ -117,9 +111,6 @@ namespace VoteService.Controllers
                     // send votes per option
                     voteResults = allVotesForThisPoll
                 });
-
-            // send analytics to analytics service without waiting
-            _ = SendVoteAnalyticsAsync(httpClient, voteData);
 
             // return success response
             return Ok(new { message = "Vote submitted successfully!" });
@@ -235,41 +226,6 @@ namespace VoteService.Controllers
             return Ok(new { message = "Broadcast sent." });
         }
 
-        private async Task SendVoteAnalyticsAsync(HttpClient httpClient, Vote voteRecord)
-        {
-            // wrap in try-catch to handle network errors
-            try
-            {
-                // get analytics service url from config or use default
-                var analyticsServiceUrl = _configuration["Services:AnalyticsServiceUrl"] ?? "http://localhost:5125";
-                // analytics endpoint path
-                const string analyticsEndpoint = "/api/Analytics";
-
-                // create json payload with vote data
-                var analyticsPayload = JsonSerializer.Serialize(new
-                {
-                    // poll code from vote
-                    pollCode = voteRecord.PollCode,
-                    // option id from vote
-                    optionId = voteRecord.OptionId,
-                    // vote timestamp
-                    voteTime = voteRecord.CreatedAt
-                });
-
-                // send post request to analytics service
-                await httpClient.PostAsync(
-                    // build full url
-                    $"{analyticsServiceUrl}{analyticsEndpoint}",
-                    // send json payload
-                    new StringContent(analyticsPayload, Encoding.UTF8, "application/json")
-                );
-            }
-            catch (Exception exceptionMessage)
-            {
-                // log error but continue execution (analytics is non-critical)
-                Console.WriteLine($"Warning: Failed to send analytics: {exceptionMessage.Message}");
-            }
-        }
     }
 
     // request model for broadcast-poll-closed endpoint

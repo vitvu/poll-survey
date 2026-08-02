@@ -32,13 +32,6 @@
       "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5002 } ]
     },
     {
-      "UpstreamPathTemplate": "/api/analytics/{everything}",
-      "UpstreamHttpMethod": [ "GET", "POST" ],
-      "DownstreamPathTemplate": "/api/Analytics/{everything}",
-      "DownstreamScheme": "https",
-      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5003 } ]
-    },
-    {
       "UpstreamPathTemplate": "/hubs/vote",
       "UpstreamHttpMethod": [ "GET", "POST", "OPTIONS" ],
       "DownstreamPathTemplate": "/hubs/vote",

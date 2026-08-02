@@ -23,14 +23,14 @@ namespace PollService.Controllers
         }
 
         [HttpGet("code/{code}")]
-        public async Task<IActionResult> GetPollByCode(string pollCode)
+        public async Task<IActionResult> GetPollByCode(string code)
         {
             // query polls table for matching code
             var pollRecord = await _databaseContext.Polls
                 // include related options for this poll
                 .Include(pollEntity => pollEntity.Options)
                 // find first poll where code matches parameter
-                .FirstOrDefaultAsync(pollEntity => pollEntity.Code == pollCode);
+                .FirstOrDefaultAsync(pollEntity => pollEntity.Code == code);
 
             // check if poll was found
             if (pollRecord == null)
@@ -42,14 +42,14 @@ namespace PollService.Controllers
         }
 
         [HttpGet("check/{code}")]
-        public async Task<IActionResult> ValidatePoll(string pollCode)
+        public async Task<IActionResult> ValidatePoll(string code)
         {
             // query polls table for matching code
             var pollRecord = await _databaseContext.Polls
                 // include related options for this poll
                 .Include(pollEntity => pollEntity.Options)
                 // find first poll where code matches parameter
-                .FirstOrDefaultAsync(pollEntity => pollEntity.Code == pollCode);
+                .FirstOrDefaultAsync(pollEntity => pollEntity.Code == code);
 
             // check if poll was found
             if (pollRecord == null)
@@ -146,12 +146,12 @@ namespace PollService.Controllers
         }
 
         [HttpPut("code/{code}")]
-        public async Task<IActionResult> UpdatePoll(string pollCode, [FromBody] Poll pollUpdateData)
+        public async Task<IActionResult> UpdatePoll(string code, [FromBody] Poll pollUpdateData)
         {
             // find existing poll by code
             var existingPoll = await _databaseContext.Polls
                 // search for poll with matching code
-                .FirstOrDefaultAsync(pollEntity => pollEntity.Code == pollCode);
+                .FirstOrDefaultAsync(pollEntity => pollEntity.Code == code);
 
             // check if poll was found
             if (existingPoll == null)
@@ -183,14 +183,14 @@ namespace PollService.Controllers
         }
 
         [HttpDelete("code/{code}")]
-        public async Task<IActionResult> DeletePoll(string pollCode)
+        public async Task<IActionResult> DeletePoll(string code)
         {
             // find poll by code including its options
             var pollToDelete = await _databaseContext.Polls
                 // include related options
                 .Include(pollEntity => pollEntity.Options)
                 // find poll with matching code
-                .FirstOrDefaultAsync(pollEntity => pollEntity.Code == pollCode);
+                .FirstOrDefaultAsync(pollEntity => pollEntity.Code == code);
 
             // check if poll was found
             if (pollToDelete == null)
@@ -203,7 +203,7 @@ namespace PollService.Controllers
             await _databaseContext.SaveChangesAsync();
 
             // notify voteservice to delete all votes for this poll
-            await DeleteVotesFromVoteService(pollCode);
+            await DeleteVotesFromVoteService(code);
 
             // return 204 no content
             return NoContent();
