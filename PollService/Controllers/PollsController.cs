@@ -35,9 +35,11 @@ namespace PollService.Controllers
             var poll = await _context.Polls.Include(p => p.Options)
                 .FirstOrDefaultAsync(p => p.Code == code);
 
-            if (poll == null)        return NotFound(new { message = "Poll does not exist." });
+            if (poll == null)            return NotFound(new { message = "Poll does not exist." });
             if (poll.Status != "Active") return BadRequest(new { message = "Poll is closed." });
-            if (poll.ExpireAt <= DateTime.Now) return BadRequest(new { message = "Poll has expired." });
+
+            // Dùng UtcNow để so sánh nhất quán với expireAt được lưu dưới dạng UTC
+            if (poll.ExpireAt <= DateTime.UtcNow) return BadRequest(new { message = "Poll has expired." });
 
             return Ok(poll);
         }
@@ -57,22 +59,28 @@ namespace PollService.Controllers
             if (string.IsNullOrWhiteSpace(poll.Question))
                 return BadRequest(new { message = "Question cannot be empty." });
 
-            if (poll.ExpireAt <= DateTime.Now)
+            // Frontend gửi ISO string (UTC), nhưng khi .NET deserialize thành DateTime
+            // thì Kind = Unspecified (không biết là UTC hay local)
+            // → Phải đánh dấu lại là UTC để so sánh đúng với DateTime.UtcNow
+            poll.ExpireAt  = DateTime.SpecifyKind(poll.ExpireAt,  DateTimeKind.Utc);
+            poll.CreatedAt = DateTime.SpecifyKind(poll.CreatedAt, DateTimeKind.Utc);
+
+            // Dùng UtcNow vì frontend gửi ISO string (UTC)
+            if (poll.ExpireAt <= DateTime.UtcNow)
                 return BadRequest(new { message = "Expiration date must be in the future." });
 
             if (await _context.Polls.AnyAsync(p => p.Code == poll.Code))
                 return BadRequest(new { message = "Code already exists." });
 
-            // Handle options based on question type
             poll.Options = poll.QuestionType switch
             {
                 "Multiple Choice" when poll.Options?.Count >= 2 => poll.Options,
                 "Multiple Choice" => throw new Exception("At least 2 options are required."),
                 "Yes / No" => new List<Option> { new() { Text = "Yes" }, new() { Text = "No" } },
-                _ => new List<Option>()   // Rating, Open Text
+                _ => new List<Option>()
             };
 
-            poll.CreatedAt = DateTime.Now;
+            poll.CreatedAt = DateTime.UtcNow;  // luôn dùng UtcNow khi tạo mới
             poll.Status ??= "Active";
 
             _context.Polls.Add(poll);

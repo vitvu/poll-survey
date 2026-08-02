@@ -160,17 +160,20 @@ const isLoading = ref(false)
 // 'none' = không giới hạn thời gian | 'custom' = người dùng tự chọn deadline
 const expireMode = ref('none')
 
-// Tạo giá trị mặc định cho datetime-local input: ngày mai ở múi giờ local
-// datetime-local cần format: "2026-08-03T14:00" (không có timezone)
+// Tạo giá trị mặc định cho datetime-local input: 5 phút kể từ bây giờ
+// datetime-local input cần format "YYYY-MM-DDTHH:MM" theo giờ LOCAL (không có timezone)
 const getDefaultExpireDate = () => {
-  const tomorrow = new Date()
-  tomorrow.setDate(tomorrow.getDate() + 1)
+  const now = new Date()
 
-  // getTimezoneOffset() trả về phút lệch múi giờ (ví dụ +7 giờ → -420 phút)
-  // nhân 60000 để đổi ra millisecond, rồi trừ đi để ra giờ local
-  const localTime = new Date(tomorrow.getTime() - tomorrow.getTimezoneOffset() * 60000)
+  // Cộng thêm 5 phút = 5 * 60 * 1000 milliseconds
+  const fiveMinutesLater = new Date(now.getTime() + 5 * 60 * 1000)
 
-  // toISOString() trả về "2026-08-03T14:00:00.000Z", .slice(0,16) cắt còn "2026-08-03T14:00"
+  // Chuyển về giờ local để hiển thị đúng trong input
+  // getTimezoneOffset() trả về phút lệch (VD: UTC+7 → -420)
+  // Trừ đi offset để ra giờ local đúng
+  const localTime = new Date(fiveMinutesLater.getTime() - fiveMinutesLater.getTimezoneOffset() * 60000)
+
+  // Cắt còn "YYYY-MM-DDTHH:MM" — đúng format datetime-local cần
   return localTime.toISOString().slice(0, 16)
 }
 
@@ -214,6 +217,18 @@ const saveCreatedPollCode = (pollCode) => {
   }
 }
 
+// Chuyển chuỗi datetime-local (không có timezone) thành UTC ISO string
+// Vấn đề: new Date("2026-08-02T13:42") → JS hiểu là UTC → toISOString() = "06:42Z" (sai)
+// Cách đúng: coi chuỗi đó là giờ LOCAL, rồi tự tính UTC bằng cách cộng offset
+const localDateTimeToUtcIso = (localDateTimeString) => {
+  // Tạo Date object từ chuỗi — JS parse "2026-08-02T13:42" theo múi giờ local
+  // Ví dụ: UTC+7 → JS lưu nội bộ là "2026-08-02T06:42Z" (đúng)
+  const date = new Date(localDateTimeString)
+
+  // .toISOString() trả về UTC đúng rồi vì Date object đã tính offset
+  return date.toISOString()
+}
+
 // Xử lý submit form tạo poll
 const submit = async () => {
   // --- Validate trước khi gửi ---
@@ -252,8 +267,8 @@ const submit = async () => {
       question:     form.value.question.trim(),
       questionType: form.value.questionType,
       expireAt:     expireMode.value === 'custom'
-                      ? new Date(form.value.expireAt).toISOString()  // deadline người dùng chọn
-                      : noLimitExpireDate.toISOString(),              // 100 năm sau
+                      ? localDateTimeToUtcIso(form.value.expireAt)  // giờ local → UTC ISO string
+                      : noLimitExpireDate.toISOString(),             // 100 năm sau
       options:      optionsToSend,
     }
 

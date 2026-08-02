@@ -22,7 +22,17 @@ builder.Services.AddDbContext<PollDbContext>(options =>
 builder.Services.AddHttpClient();
 
 // Đăng ký bộ xử lý Controller API
-builder.Services.AddControllers();
+// Cấu hình JSON: serialize DateTime luôn theo format "R" (RFC1123) hoặc dùng
+// DateTimeZoneHandling để thêm "Z" khi Kind = Utc
+// Cách đơn giản nhất: thay đổi serializer mặc định sang Newtonsoft.Json
+builder.Services.AddControllers()
+    .AddNewtonsoftJson(options =>
+    {
+        // DateTimeZoneHandling.Utc: tất cả DateTime khi serialize đều thêm "Z"
+        // → JS nhận "2026-08-02T06:42:00Z" → parse đúng là UTC → hiển thị đúng giờ local
+        options.SerializerSettings.DateTimeZoneHandling =
+            Newtonsoft.Json.DateTimeZoneHandling.Utc;
+    });
 
 // Đăng ký dịch vụ Swagger để tạo giao diện kiểm thử API tự động
 builder.Services.AddEndpointsApiExplorer();
