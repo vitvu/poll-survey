@@ -51,7 +51,7 @@
 
 <template>
   <!-- Wrapper bao ngoài toàn bộ app — CSS: min-height 100vh, flex column -->
-  <div class="app-wrap">
+  <div class="min-h-screen flex flex-col">
 
     <!-- Vùng nội dung chính — CSS: có padding top/bottom, flex: 1 để chiếm hết chiều cao -->
     <main class="page-wrap">

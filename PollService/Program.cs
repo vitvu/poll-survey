@@ -18,6 +18,9 @@ builder.Services.AddCors(options =>
 builder.Services.AddDbContext<PollDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
+// Đăng ký IHttpClientFactory (dùng để gọi VoteService khi đóng poll)
+builder.Services.AddHttpClient();
+
 // Đăng ký bộ xử lý Controller API
 builder.Services.AddControllers();
 

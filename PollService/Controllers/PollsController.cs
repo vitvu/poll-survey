@@ -114,5 +114,20 @@ namespace PollService.Controllers
 
             return NoContent();
         }
+
+        // DELETE /api/polls/{id} — Delete poll and all associated votes
+        [HttpDelete("{id:int}")]
+        public async Task<IActionResult> Delete(int id)
+        {
+            var poll = await _context.Polls.Include(p => p.Options)
+                .FirstOrDefaultAsync(p => p.Id == id);
+
+            if (poll == null) return NotFound();
+
+            _context.Polls.Remove(poll);
+            await _context.SaveChangesAsync();
+
+            return NoContent();
+        }
     }
 }
