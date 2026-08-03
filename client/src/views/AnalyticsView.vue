@@ -71,7 +71,7 @@
                 <Calendar :size="14" /> {{ new Date(poll.createdAt).toLocaleDateString('en-US') }}
               </span>
               <span class="flex items-center gap-1.5">
-                <Clock :size="14" /> {{ new Date(poll.expireAt).toLocaleString('en-US') }}
+                <Clock :size="14" /> {{ isNoLimit(poll.expireAt) ? 'No Limit' : new Date(poll.expireAt).toLocaleString('en-US') }}
               </span>
             </div>
           </div>
@@ -245,6 +245,14 @@ const isPollClosed = () => {
   if (poll.value.status !== 'Active') return true
   if (new Date(poll.value.expireAt) <= new Date()) return true
   return false
+}
+
+// Check nếu poll không có giới hạn thời gian (set = 100 năm sau)
+const isNoLimit = (expireAtString) => {
+  const expireDate = new Date(expireAtString)
+  const now = new Date()
+  const yearsUntilExpire = expireDate.getFullYear() - now.getFullYear()
+  return yearsUntilExpire > 50  // Nếu > 50 năm nữa thì coi là "No Limit"
 }
 
 // Tạo link chia sẻ để gửi cho người tham gia vote
