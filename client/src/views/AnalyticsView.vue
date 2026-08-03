@@ -253,76 +253,34 @@ const isPollClosed = () => {
 const shareLink = () => `${location.origin}/vote/${poll.value?.code}`
 
 // =================================================================
-// loadResults — tải kết quả vote từ backend
+// loadResults — load vote data from API
 // =================================================================
-// Được gọi ở 3 thời điểm:
-//   1. Sau khi mount (load lần đầu)
-//   2. Khi nhận dữ liệu mới từ SignalR (realtime)
-//   3. Mỗi 6 giây nếu SignalR mất kết nối (fallback)
 const loadResults = async () => {
-  if (!poll.value) return  // poll chưa load xong → không làm gì
+  if (!poll.value) return
 
-  // --- Bước 1: Lấy tổng số phiếu ---
-  // GET /api/votes/total/{pollCode} → trả về { pollCode, totalVotes: 42 }
-  const totalResponse = await pollApi.getVoteTotal(pollCode)
-  totalVotes.value = totalResponse.data.totalVotes  // lưu số 42
+  const response = await pollApi.getVoteData(pollCode)
+  const { total, summary, votes } = response.data
 
-  const questionType = poll.value.questionType  // 'Multiple Choice' / 'Rating' / ...
+  totalVotes.value = total
 
-  // --- Bước 2: Lấy kết quả theo từng loại câu hỏi ---
+  const questionType = poll.value.questionType
 
   if (questionType === 'Multiple Choice' || questionType === 'Yes / No') {
-    // GET /api/votes/result/{pollCode}
-    // Trả về: [{ optionId: 1, count: 5 }, { optionId: 2, count: 3 }]
-    // Chú ý: backend KHÔNG trả tên option, chỉ có id và số phiếu
-    const response = await pollApi.getVoteResults(pollCode)
-    const voteCountList = response.data  // [{ optionId, count }]
-
-    // Tạo mảng mới kết hợp tên option + số phiếu
-    const resultsWithName = []
-    for (const voteItem of voteCountList) {
-      // voteItem = { optionId: 1, count: 5 }
-      // Tìm trong poll.options option nào có id khớp để lấy tên
-      // poll.options = [{ id: 1, text: 'Vue' }, { id: 2, text: 'React' }]
-      const matchedOption = poll.value.options.find(option => option.id === voteItem.optionId)
-      const optionName = matchedOption ? matchedOption.text : '(unknown)'
-
-      resultsWithName.push({
-        optionId:   voteItem.optionId,   // id để dùng làm :key trong v-for
-        optionText: optionName,          // tên hiển thị ra giao diện
-        count:      voteItem.count,      // số phiếu để vẽ thanh bar
-      })
-    }
-
-    // Sort: phần tử có count lớn hơn lên trước
-    // (a, b) => b.count - a.count:
-    //   kết quả dương → b lên trước a (b lớn hơn)
-    //   kết quả âm   → a lên trước b
+    const resultsWithName = summary.map(item => ({
+      optionId: item.optionId,
+      optionText: poll.value.options.find(o => o.id === item.optionId)?.text || '(unknown)',
+      count: item.count,
+    }))
     resultsWithName.sort((a, b) => b.count - a.count)
-    choiceResults.value = resultsWithName  // Vue tự cập nhật template
+    choiceResults.value = resultsWithName
 
   } else if (questionType === 'Rating') {
-    // GET /api/votes/list/{pollCode}
-    // Trả về từng phiếu: [{ voteValue: '4' }, { voteValue: '5' }, ...]
-    // voteValue là chuỗi số từ '1' đến '5' (số sao người dùng chọn)
-    const response = await pollApi.getVoteList(pollCode)
-    ratingVoteList.value = response.data  // gán thẳng, template tự render sao
+    ratingVoteList.value = votes
 
   } else if (questionType === 'Open Text') {
-    // GET /api/votes/list/{pollCode}
-    // Trả về từng phiếu: [{ voteValue: 'Tôi thích Vue' }, { voteValue: '' }, ...]
-    const response = await pollApi.getVoteList(pollCode)
-
-    // Chỉ lấy phần text, bỏ các phiếu rỗng
-    const textList = []
-    for (const voteItem of response.data) {
-      // if (voteItem.voteValue) = true nếu là chuỗi có nội dung
-      //                         = false nếu là '', null, undefined
-      if (voteItem.voteValue) {
-        textList.push(voteItem.voteValue)
-      }
-    }
-    openTextResponses.value = textList
+    openTextResponses.value = votes
+      .map(v => v.voteValue)
+      .filter(v => v && v.trim())
   }
 }
 

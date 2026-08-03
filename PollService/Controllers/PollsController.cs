@@ -194,55 +194,34 @@ namespace PollService.Controllers
             return NoContent();
         }
 
-        private async Task BroadcastPollClosedToVoteService(string pollCode)
+        private async Task DeleteVotesFromVoteService(string pollCode)
         {
-            // wrap in try-catch to handle network errors
             try
             {
-                // create new http client from factory
                 var httpClient = _httpClientFactory.CreateClient();
-                // voteservice url
                 const string voteServiceUrl = "https://localhost:5002";
-                // broadcast endpoint path
-                const string broadcastEndpoint = "/api/votes/broadcast-poll-closed";
+                await httpClient.DeleteAsync($"{voteServiceUrl}/api/Votes?pollCode={pollCode}");
+            }
+            catch (Exception exceptionMessage)
+            {
+                Console.WriteLine($"Warning: Failed to delete votes for poll {pollCode}: {exceptionMessage.Message}");
+            }
+        }
 
-                // send post request to voteservice
+        private async Task BroadcastPollClosedToVoteService(string pollCode)
+        {
+            try
+            {
+                var httpClient = _httpClientFactory.CreateClient();
+                const string voteServiceUrl = "https://localhost:5002";
                 await httpClient.PostAsJsonAsync(
-                    // build full url
-                    $"{voteServiceUrl}{broadcastEndpoint}",
-                    // send poll code in request body
+                    $"{voteServiceUrl}/api/Votes/broadcast-closed",
                     new { pollCode = pollCode }
                 );
             }
             catch (Exception exceptionMessage)
             {
-                // log error message but continue execution
                 Console.WriteLine($"Warning: Failed to broadcast poll closed for {pollCode}: {exceptionMessage.Message}");
-            }
-        }
-
-        private async Task DeleteVotesFromVoteService(string pollCode)
-        {
-            // wrap in try-catch to handle network errors
-            try
-            {
-                // create new http client from factory
-                var httpClient = _httpClientFactory.CreateClient();
-                // voteservice url
-                const string voteServiceUrl = "https://localhost:5002";
-                // delete endpoint path
-                const string deleteVotesEndpoint = "/api/votes/by-poll-code/";
-
-                // send delete request to voteservice
-                await httpClient.DeleteAsync(
-                    // build full url with poll code
-                    $"{voteServiceUrl}{deleteVotesEndpoint}{pollCode}"
-                );
-            }
-            catch (Exception exceptionMessage)
-            {
-                // log error message but continue execution
-                Console.WriteLine($"Warning: Failed to delete votes for poll {pollCode}: {exceptionMessage.Message}");
             }
         }
     }

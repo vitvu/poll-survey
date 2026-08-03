@@ -32,197 +32,106 @@ namespace VoteService.Controllers
             _signalRHubContext = signalRHubContext;
         }
 
+        // POST /api/votes — Submit a new vote
         [HttpPost]
         public async Task<IActionResult> SubmitVote([FromBody] Vote voteData)
         {
-            // check if poll code is missing
-            if (string.IsNullOrWhiteSpace(voteData.PollCode))
-                // return 400 if poll code missing
-                return BadRequest(new { message = "Missing required data." });
-            
-            // check if voter token is missing
-            if (string.IsNullOrWhiteSpace(voteData.VoterToken))
-                // return 400 if voter token missing
+            if (string.IsNullOrWhiteSpace(voteData.PollCode) || string.IsNullOrWhiteSpace(voteData.VoterToken))
                 return BadRequest(new { message = "Missing required data." });
 
-            // check if voter already voted before
-            bool voterAlreadyVoted = await _databaseContext.Votes
-                // search for votes with same poll code and voter token
-                .AnyAsync(existingVote =>
-                    existingVote.PollCode == voteData.PollCode &&
-                    existingVote.VoterToken == voteData.VoterToken);
-
-            // if voter already voted return error
-            if (voterAlreadyVoted)
-                // return 400 if already voted
+            // Check duplicate vote
+            if (await _databaseContext.Votes.AnyAsync(v =>
+                v.PollCode == voteData.PollCode && v.VoterToken == voteData.VoterToken))
                 return BadRequest(new { message = "You have already voted." });
 
-            // create http client to call other services
+            // Validate poll exists and is active
             var httpClient = _httpClientFactory.CreateClient();
-            // get poll service url from config or use default
             var pollServiceUrl = _configuration["Services:PollServiceUrl"] ?? "http://localhost:5248";
-            // send get request to poll service to validate poll
             var pollValidationResponse = await httpClient.GetAsync(
-                // build url to poll service check endpoint
                 $"{pollServiceUrl}/api/Polls/check/{voteData.PollCode}"
             );
 
-            // check if poll validation failed
             if (!pollValidationResponse.IsSuccessStatusCode)
-                // return 400 if poll invalid closed or expired
                 return BadRequest(new { message = "Poll is invalid or has been closed." });
 
-            // set vote created time to current system time
+            // Save vote
             voteData.CreatedAt = DateTime.Now;
-            // add vote record to database context
             _databaseContext.Votes.Add(voteData);
-            // save vote to database
             await _databaseContext.SaveChangesAsync();
 
-            // query all votes for this poll from database
-            var allVotesForThisPoll = await _databaseContext.Votes
-                // filter by matching poll code
-                .Where(existingVote => existingVote.PollCode == voteData.PollCode)
-                // group votes by option id
-                .GroupBy(existingVote => existingVote.OptionId)
-                // select option id and vote count for each group
-                .Select(voteGroupByOption => new
-                {
-                    optionId = voteGroupByOption.Key,
-                    voteCount = voteGroupByOption.Count()
-                })
-                // execute query and load results
+            // Broadcast updated results via SignalR
+            var voteResults = await _databaseContext.Votes
+                .Where(v => v.PollCode == voteData.PollCode)
+                .GroupBy(v => v.OptionId)
+                .Select(g => new { optionId = g.Key, voteCount = g.Count() })
                 .ToListAsync();
 
-            // calculate total votes for this poll
-            int totalVotesForThisPoll = allVotesForThisPoll.Sum(result => result.voteCount);
+            var totalVotes = voteResults.Sum(r => r.voteCount);
 
-            // broadcast updated results to signalr clients
             await _signalRHubContext.Clients
-                // get clients in poll group
                 .Group($"poll_{voteData.PollCode}")
-                // send vote updated event
-                .SendAsync("VoteUpdated", new
-                {
-                    // send poll code
-                    pollCode = voteData.PollCode,
-                    // send total votes
-                    totalVotes = totalVotesForThisPoll,
-                    // send votes per option
-                    voteResults = allVotesForThisPoll
-                });
+                .SendAsync("VoteUpdated", new { pollCode = voteData.PollCode, totalVotes, voteResults });
 
-            // return success response
             return Ok(new { message = "Vote submitted successfully!" });
         }
 
-        [HttpGet("result/{pollCode}")]
-        public async Task<IActionResult> GetVoteResults(string pollCode)
+        // GET /api/votes/{pollCode} — Get all vote data for a poll
+        [HttpGet("{pollCode}")]
+        public async Task<IActionResult> GetVoteData(string pollCode)
         {
-            // query all votes for this poll from database
-            var voteResultsByOption = await _databaseContext.Votes
-                // filter by matching poll code
-                .Where(voteRecord => voteRecord.PollCode == pollCode)
-                // group votes by option id
-                .GroupBy(voteRecord => voteRecord.OptionId)
-                // select option id and vote count for each group
-                .Select(voteGroupByOption => new
-                {
-                    optionId = voteGroupByOption.Key,
-                    voteCount = voteGroupByOption.Count()
-                })
-                // execute query and load results
+            var allVotes = await _databaseContext.Votes
+                .Where(v => v.PollCode == pollCode)
+                .OrderByDescending(v => v.CreatedAt)
                 .ToListAsync();
 
-            // return vote results
-            return Ok(voteResultsByOption);
-        }
+            // Group by option for summary
+            var summary = allVotes
+                .GroupBy(v => v.OptionId)
+                .Select(g => new { optionId = g.Key, count = g.Count() })
+                .ToList();
 
-        [HttpGet("total/{pollCode}")]
-        public async Task<IActionResult> GetTotalVotes(string pollCode)
-        {
-            // count all votes for this poll
-            int totalVoteCount = await _databaseContext.Votes
-                // filter by matching poll code
-                .CountAsync(voteRecord => voteRecord.PollCode == pollCode);
+            // Individual vote details
+            var votes = allVotes
+                .Select(v => new { optionId = v.OptionId, voteValue = v.VoteValue, createdAt = v.CreatedAt })
+                .ToList();
 
-            // return total votes
             return Ok(new
             {
-                // send poll code
-                pollCode = pollCode,
-                // send total vote count
-                totalVotes = totalVoteCount
+                pollCode,
+                total = allVotes.Count,
+                summary,  // [{ optionId, count }]
+                votes     // [{ optionId, voteValue, createdAt }]
             });
         }
 
-        [HttpGet("list/{pollCode}")]
-        public async Task<IActionResult> GetVoteDetails(string pollCode)
+        // DELETE /api/votes?pollCode={pollCode} — Delete all votes for a poll
+        [HttpDelete]
+        public async Task<IActionResult> DeleteVotes([FromQuery] string pollCode)
         {
-            // query all votes for this poll from database
-            var voteDetailsList = await _databaseContext.Votes
-                // filter by matching poll code
-                .Where(voteRecord => voteRecord.PollCode == pollCode)
-                // sort by creation time descending (newest first)
-                .OrderByDescending(voteRecord => voteRecord.CreatedAt)
-                // select specific fields
-                .Select(voteRecord => new
-                {
-                    // option id
-                    optionId = voteRecord.OptionId,
-                    // vote value for open text/rating
-                    voteValue = voteRecord.VoteValue,
-                    // creation time
-                    createdAt = voteRecord.CreatedAt
-                })
-                // execute query and load results
-                .ToListAsync();
+            if (string.IsNullOrWhiteSpace(pollCode))
+                return BadRequest(new { message = "pollCode is required." });
 
-            // return vote details
-            return Ok(voteDetailsList);
-        }
-
-        [HttpDelete("by-poll-code/{pollCode}")]
-        public async Task<IActionResult> DeleteVotesByPollCode(string pollCode)
-        {
-            // query all votes for this poll from database
             var votesToDelete = await _databaseContext.Votes
-                // filter by matching poll code
-                .Where(voteRecord => voteRecord.PollCode == pollCode)
-                // execute query and load results
+                .Where(v => v.PollCode == pollCode)
                 .ToListAsync();
 
-            // remove all votes from database context
             _databaseContext.Votes.RemoveRange(votesToDelete);
-            // save changes to database
             await _databaseContext.SaveChangesAsync();
 
-            // return 204 no content
             return NoContent();
         }
 
-        [HttpPost("broadcast-poll-closed")]
-        public async Task<IActionResult> BroadcastPollClosed([FromBody] PollClosedRequest pollClosureRequest)
+        // POST /api/votes/broadcast-closed — Broadcast poll closed event (inter-service call)
+        [HttpPost("broadcast-closed")]
+        public async Task<IActionResult> BroadcastPollClosed([FromBody] PollClosedRequest request)
         {
-            // check if poll code is missing
-            if (string.IsNullOrWhiteSpace(pollClosureRequest.PollCode))
-                // return 400 if poll code missing
+            if (string.IsNullOrWhiteSpace(request.PollCode))
                 return BadRequest(new { message = "PollCode is required." });
 
-            // broadcast to signalr clients
             await _signalRHubContext.Clients
-                // get clients in poll group
-                .Group($"poll_{pollClosureRequest.PollCode}")
-                // send poll closed event
-                .SendAsync("PollClosed", new
-                {
-                    // send poll code
-                    pollCode = pollClosureRequest.PollCode,
-                    // send status
-                    status = "Closed"
-                });
+                .Group($"poll_{request.PollCode}")
+                .SendAsync("PollClosed", new { pollCode = request.PollCode, status = "Closed" });
 
-            // return success response
             return Ok(new { message = "Broadcast sent." });
         }
 

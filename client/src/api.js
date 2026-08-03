@@ -86,20 +86,14 @@ export const pollApi = {
 
   // ── Vote APIs ─────────────────────────────────────────────────
 
-  // Gửi vote của user — dùng ở VoteView khi bấm Submit
-  // body gồm: { pollCode, voterToken, optionId, voteValue }
+  // Submit a new vote
   submitVote: data => apiClient.post('/api/votes', data),
 
-  // Lấy kết quả tổng hợp theo option (Multiple Choice, Yes/No)
-  // Trả về: [{ optionId, count }, ...] — dùng ở AnalyticsView để vẽ bar chart
-  getVoteResults: code => apiClient.get(`/api/votes/result/${code}`),
+  // Get all vote data for a poll (results + details + total)
+  getVoteData: pollCode => apiClient.get(`/api/votes/${pollCode}`),
 
-  // Lấy tổng số phiếu bầu — dùng ở AnalyticsView để hiển thị stat card
-  getVoteTotal: code => apiClient.get(`/api/votes/total/${code}`),
-
-  // Lấy danh sách từng phiếu (Rating/Open Text)
-  // Trả về: [{ voteValue }, ...] — dùng ở AnalyticsView để tính avg rating hoặc hiển thị text responses
-  getVoteList: code => apiClient.get(`/api/votes/list/${code}`),
+  // Delete all votes for a poll
+  deleteVotes: pollCode => apiClient.delete('/api/votes', { params: { pollCode } }),
 }
 
 export default apiClient

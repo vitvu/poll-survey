@@ -289,8 +289,8 @@ VoteDB:
 
 
 PollService gọi VoteService khi:
-1. **Update poll status = "Closed"** → `POST https://localhost:5002/api/votes/broadcast-poll-closed` để SignalR broadcast event `PollClosed`
-2. **Delete poll** → `DELETE https://localhost:5002/api/votes/by-poll-code/{code}` để xóa tất cả votes
+1. **Close poll** → `POST https://localhost:5002/api/Votes/broadcast-closed` để broadcast `PollClosed`
+2. **Delete poll** → `DELETE https://localhost:5002/api/Votes?pollCode={code}` để xoá votes
 
 **Hardcoded URL:** `const string voteServiceUrl = "https://localhost:5002";` trong PollsController.cs
 
@@ -302,14 +302,12 @@ PollService gọi VoteService khi:
 
 #### **Endpoints**
 
-| Method | Route | Request Body | Response | Logic |
-|--------|-------|--------------|----------|-------|
-| **POST** | `/api/votes` | `{ pollCode, voterToken, optionId, voteValue }` | `200 OK`<br>`400 Bad Request` (already voted / poll invalid) | 1. Check duplicate: `PollCode + VoterToken` đã vote chưa<br>2. Validate poll: gọi PollService `/check/{code}`<br>3. Lưu vote vào DB<br>4. Query tổng votes<br>5. **SignalR broadcast** `VoteUpdated` event |
-| **GET** | `/api/votes/result/{pollCode}` | - | `200 OK` + `[{ optionId, voteCount }]` | Trả về số phiếu của từng option (Multiple Choice/Yes-No). Used by: AnalyticsView để vẽ bar chart. |
-| **GET** | `/api/votes/total/{pollCode}` | - | `200 OK` + `{ pollCode, totalVotes }` | Trả về tổng số phiếu. Used by: AnalyticsView stat card. |
-| **GET** | `/api/votes/list/{pollCode}` | - | `200 OK` + `[{ optionId, voteValue, createdAt }]` | Trả về list từng phiếu (Rating/Open Text). Used by: AnalyticsView để hiển thị stars/text responses. |
-| **DELETE** | `/api/votes/by-poll-code/{pollCode}` | - | `204 No Content` | Xóa tất cả votes của poll. Được gọi bởi PollService khi delete poll. |
-| **POST** | `/api/votes/broadcast-poll-closed` | `{ pollCode }` | `200 OK` | SignalR broadcast event `PollClosed`. Được gọi bởi PollService khi đóng poll. |
+| Method | Route | Response | Logic |
+|--------|-------|----------|-------|
+| **POST** | `/api/votes` | `200 OK` | Submit vote + validate + broadcast |
+| **GET** | `/api/votes/{pollCode}` | `200 OK` + `{ total, summary[], votes[] }` | Get all vote data at once |
+| **DELETE** | `/api/votes?pollCode={code}` | `204 No Content` | Delete all votes (inter-service) |
+| **POST** | `/api/votes/broadcast-closed` | `200 OK` | Broadcast poll closed (inter-service) |
 
 #### **SignalR Hub: VoteHub**
 
