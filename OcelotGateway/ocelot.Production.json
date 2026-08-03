@@ -7,36 +7,36 @@
       "UpstreamPathTemplate": "/api/polls/{everything}",
       "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
       "DownstreamPathTemplate": "/api/Polls/{everything}",
-      "DownstreamScheme": "http",
-      "DownstreamHostAndPorts": [ { "Host": "poll-service", "Port": 8080 } ]
+      "DownstreamScheme": "https",
+      "DownstreamHostAndPorts": [ { "Host": "poll-service-ed6g.onrender.com", "Port": 443 } ]
     },
     {
       "UpstreamPathTemplate": "/api/polls",
       "UpstreamHttpMethod": [ "GET", "POST" ],
       "DownstreamPathTemplate": "/api/Polls",
-      "DownstreamScheme": "http",
-      "DownstreamHostAndPorts": [ { "Host": "poll-service", "Port": 8080 } ]
+      "DownstreamScheme": "https",
+      "DownstreamHostAndPorts": [ { "Host": "poll-service-ed6g.onrender.com", "Port": 443 } ]
     },
     {
       "UpstreamPathTemplate": "/api/votes/{everything}",
       "UpstreamHttpMethod": [ "GET", "POST", "DELETE" ],
       "DownstreamPathTemplate": "/api/Votes/{everything}",
-      "DownstreamScheme": "http",
-      "DownstreamHostAndPorts": [ { "Host": "vote-service", "Port": 8080 } ]
+      "DownstreamScheme": "https",
+      "DownstreamHostAndPorts": [ { "Host": "vote-service-78a5.onrender.com", "Port": 443 } ]
     },
     {
       "UpstreamPathTemplate": "/api/votes",
       "UpstreamHttpMethod": [ "GET", "POST", "DELETE" ],
       "DownstreamPathTemplate": "/api/Votes",
-      "DownstreamScheme": "http",
-      "DownstreamHostAndPorts": [ { "Host": "vote-service", "Port": 8080 } ]
+      "DownstreamScheme": "https",
+      "DownstreamHostAndPorts": [ { "Host": "vote-service-78a5.onrender.com", "Port": 443 } ]
     },
     {
       "UpstreamPathTemplate": "/hubs/vote",
       "UpstreamHttpMethod": [ "GET", "POST", "OPTIONS" ],
       "DownstreamPathTemplate": "/hubs/vote",
-      "DownstreamScheme": "http",
-      "DownstreamHostAndPorts": [ { "Host": "vote-service", "Port": 8080 } ]
+      "DownstreamScheme": "https",
+      "DownstreamHostAndPorts": [ { "Host": "vote-service-78a5.onrender.com", "Port": 443 } ]
     }
   ]
 }
