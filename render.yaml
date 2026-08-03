@@ -15,7 +15,9 @@ services:
       - key: ConnectionStrings__DefaultConnection
         sync: false
       - key: AllowedOrigins__0
-        value: https://poll-client.onrender.com
+        value: https://poll.vit.io.vn
+      - key: AllowedOrigins__1
+        value: https://poll-client-f1js.onrender.com
 
   # Vote Service - Manages votes and SignalR
   - type: web
@@ -33,9 +35,11 @@ services:
       - key: ConnectionStrings__DefaultConnection
         sync: false
       - key: Services__PollServiceUrl
-        value: https://poll-service.onrender.com
+        value: https://poll-service-ed6g.onrender.com
       - key: AllowedOrigins__0
-        value: https://poll-client.onrender.com
+        value: https://poll.vit.io.vn
+      - key: AllowedOrigins__1
+        value: https://poll-client-f1js.onrender.com
 
   # Ocelot Gateway - API Gateway
   - type: web
@@ -57,8 +61,8 @@ services:
     buildCommand: |
       cd client
       npm install
-      export VUE_APP_API_BASE_URL="https://ocelot-gateway.onrender.com"
-      export VUE_APP_VOTE_SERVICE_URL="https://vote-service.onrender.com"
+      export VUE_APP_API_BASE_URL="https://ocelot-gateway-kscx.onrender.com"
+      export VUE_APP_VOTE_SERVICE_URL="https://vote-service-78a5.onrender.com"
       npm run build
     staticPublishPath: ./client/dist
     pullRequestPreviewsEnabled: true
