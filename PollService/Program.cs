@@ -62,14 +62,9 @@ using (var scope = app.Services.CreateScope())
 // use cors middleware with allowall policy
 app.UseCors("AllowAll");
 
-// check if running in development environment
-if (app.Environment.IsDevelopment())
-{
-    // enable swagger ui for api documentation
-    app.UseSwagger();
-    // enable swagger ui interface
-    app.UseSwaggerUI();
-}
+// enable swagger ui for all environments (also used as health check endpoint)
+app.UseSwagger();
+app.UseSwaggerUI();
 
 // enable authorization middleware
 app.UseAuthorization();
