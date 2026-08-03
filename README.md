@@ -284,9 +284,9 @@ VoteDB:
 | **GET** | `/api/polls/check/{code}` | - | `200 OK` + poll object (nếu active & not expired)<br>`400 Bad Request` (nếu closed/expired)<br>`404 Not Found` (nếu không tồn tại) | Validate poll hợp lệ trước khi vote. VoteService gọi endpoint này. |
 | **PUT** | `/api/polls/code/{code}` | `{ status, question, expireAt }` | `204 No Content` | Update poll. Nếu đổi status → "Closed", gọi VoteService để broadcast SignalR. |
 | **DELETE** | `/api/polls/code/{code}` | - | `204 No Content` | Xóa poll + cascade delete options. Sau đó gọi VoteService để xóa tất cả votes của poll này. |
-| **GET** | `/api/polls/check-option/{optionId}` | - | `200 OK` + option object<br>`404 Not Found` | Validate option tồn tại (không dùng trong app hiện tại). |
 
 #### **Inter-Service Calls**
+
 
 PollService gọi VoteService khi:
 1. **Update poll status = "Closed"** → `POST https://localhost:5002/api/votes/broadcast-poll-closed` để SignalR broadcast event `PollClosed`

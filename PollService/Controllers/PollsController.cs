@@ -70,21 +70,6 @@ namespace PollService.Controllers
             return Ok(pollRecord);
         }
 
-        [HttpGet("check-option/{optionId:int}")]
-        public async Task<IActionResult> ValidateOption(int optionId)
-        {
-            // query options table by option id
-            var optionRecord = await _databaseContext.Options.FindAsync(optionId);
-
-            // check if option was found
-            if (optionRecord == null)
-                // return 404 if not found
-                return NotFound();
-
-            // return option data
-            return Ok(optionRecord);
-        }
-
         [HttpPost]
         public async Task<IActionResult> CreatePoll([FromBody] Poll pollData)
         {
