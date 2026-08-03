@@ -185,61 +185,35 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-// useToast: hiện thông báo nhỏ góc màn hình. Dùng: toast.success('...') / toast.error('...')
 import { useToast } from 'vue-toastification'
-// pollApi: object chứa tất cả hàm gọi HTTP đến backend — định nghĩa trong src/api.js
 import { pollApi } from '../api'
-// usePollHub: hook kết nối SignalR để nhận kết quả vote realtime — định nghĩa trong src/usePollHub.js
 import { usePollHub } from '../usePollHub'
-// QRCode: thư viện bên ngoài, vẽ mã QR lên phần tử <canvas>
 import QRCode from 'qrcode'
 import {
   ChevronLeft, Lock, Copy, ExternalLink, StopCircle, Trash2,
   Calendar, Clock, BarChart2, Star, Clipboard, X,
 } from '@lucide/vue'
 
-const route  = useRoute()   // đọc thông tin URL hiện tại (query string, params,...)
-const router = useRouter()  // dùng để chuyển trang: router.push('/')
-const toast  = useToast()   // hiện toast thông báo
+const route  = useRoute()
+const router = useRouter()
+const toast  = useToast()
 
-// Lấy code poll từ query string trong URL
-// Ví dụ: /analytics?code=123456  →  pollCode = '123456'
 const pollCode = route.query.code
 
-// =================================================================
-// BIẾN TRẠNG THÁI GIAO DIỆN
-// ref(giá_trị_ban_đầu) tạo "hộp" chứa giá trị reactive
-// Đọc: biến.value  |  Ghi: biến.value = ...
-// Khi .value thay đổi → Vue tự cập nhật lại phần template dùng biến đó
-// =================================================================
+const accessDenied  = ref(false)
+const confirmStop   = ref(false)
+const confirmDelete = ref(false)
+const showQRModal   = ref(false)
 
-const accessDenied  = ref(false)   // true = hiện màn hình "Access Denied"
-const confirmStop   = ref(false)   // true = hiện modal xác nhận Stop
-const confirmDelete = ref(false)   // true = hiện modal xác nhận Delete
-const showQRModal   = ref(false)   // true = hiện modal QR phóng to
-
-// poll: object poll đầy đủ { id, code, question, options, status, expireAt, createdAt, ... }
-// Ban đầu null → template dùng v-else-if="poll" để chờ load xong mới hiện
 const poll              = ref(null)
-const totalVotes        = ref(0)     // tổng số người đã vote
-const choiceResults     = ref([])    // kết quả Multiple Choice/Yes-No: [{ optionId, optionText, count }]
-const openTextResponses = ref([])    // câu trả lời Open Text: ['Tôi thích Vue', 'React tốt hơn', ...]
-const ratingVoteList    = ref([])    // danh sách phiếu Rating: [{ voteValue: '4' }, ...]
+const totalVotes        = ref(0)
+const choiceResults     = ref([])
+const openTextResponses = ref([])
+const ratingVoteList    = ref([])
 
-// Canvas refs: Vue tự gán phần tử <canvas> vào đây sau khi DOM mount
-// Trước mount: null  |  Sau mount: phần tử <canvas> thật trong trang
-const qrThumbnailCanvas = ref(null)  // canvas nhỏ trong header card
-const qrLargeCanvas     = ref(null)  // canvas lớn trong modal QR
+const qrThumbnailCanvas = ref(null)
+const qrLargeCanvas     = ref(null)
 
-// =================================================================
-// HÀM TIỆN ÍCH (không dùng computed để đơn giản hơn)
-// =================================================================
-
-// Kiểm tra poll đã đóng chưa — trả về true/false
-// Poll coi là đóng nếu THỎA MỘT TRONG BA điều kiện:
-//   1. poll.value là null (chưa load xong)
-//   2. status không phải 'Active'
-//   3. expireAt đã qua thời hạn
 const isPollClosed = () => {
   if (!poll.value) return true
   if (poll.value.status !== 'Active') return true
@@ -247,22 +221,15 @@ const isPollClosed = () => {
   return false
 }
 
-// Check nếu poll không có giới hạn thời gian (set = 100 năm sau)
 const isNoLimit = (expireAtString) => {
   const expireDate = new Date(expireAtString)
   const now = new Date()
   const yearsUntilExpire = expireDate.getFullYear() - now.getFullYear()
-  return yearsUntilExpire > 50  // Nếu > 50 năm nữa thì coi là "No Limit"
+  return yearsUntilExpire > 50
 }
 
-// Tạo link chia sẻ để gửi cho người tham gia vote
-// location.origin = phần gốc URL hiện tại, ví dụ: http://localhost:8080
-// Kết quả ví dụ: http://localhost:8080/vote/123456
 const shareLink = () => `${location.origin}/vote/${poll.value?.code}`
 
-// =================================================================
-// loadResults — load vote data from API
-// =================================================================
 const loadResults = async () => {
   if (!poll.value) return
 
@@ -273,10 +240,21 @@ const loadResults = async () => {
 
   const questionType = poll.value.questionType
 
-  if (questionType === 'Multiple Choice' || questionType === 'Yes / No') {
+  if (questionType === 'Multiple Choice') {
     const resultsWithName = summary.map(item => ({
       optionId: item.optionId,
       optionText: poll.value.options.find(o => o.id === item.optionId)?.text || '(unknown)',
+      count: item.count,
+    }))
+    resultsWithName.sort((a, b) => b.count - a.count)
+    choiceResults.value = resultsWithName
+
+  } else if (questionType === 'Yes / No') {
+    // map votevalue to yes/no labels
+    const yesNoMap = { '1': 'Yes', '0': 'No' }
+    const resultsWithName = summary.map(item => ({
+      optionId: 0,
+      optionText: yesNoMap[item.voteValue] || item.voteValue,
       count: item.count,
     }))
     resultsWithName.sort((a, b) => b.count - a.count)
@@ -292,22 +270,15 @@ const loadResults = async () => {
   }
 }
 
-// =================================================================
-// renderQRCode — vẽ mã QR lên phần tử <canvas>
-// Tham số:
-//   canvasElement: phần tử <canvas> DOM thật (lấy từ ref.value)
-//   size: kích thước pixel muốn vẽ (100 = nhỏ, 320 = lớn)
-// =================================================================
 const renderQRCode = async (canvasElement, size) => {
-  // Nếu canvas chưa tồn tại trong DOM thì bỏ qua (tránh lỗi)
   if (!canvasElement) return
   try {
     await QRCode.toCanvas(canvasElement, shareLink(), {
-      width: size,    // chiều rộng và cao của ảnh QR (px)
-      margin: 2,      // số ô trắng viền xung quanh QR
+      width: size,
+      margin: 2,
       color: {
-        dark: '#1e293b',   // màu của các ô trong QR
-        light: '#ffffff',  // màu nền
+        dark: '#1e293b',
+        light: '#ffffff',
       },
     })
   } catch (error) {
@@ -315,150 +286,93 @@ const renderQRCode = async (canvasElement, size) => {
   }
 }
 
-// =================================================================
-// openQRModal — mở modal QR và vẽ QR lớn vào canvas
-// =================================================================
-// Lý do cần setTimeout 50ms:
-//   showQRModal.value = true → Vue cần một "tick" để tạo <canvas ref="qrLargeCanvas">
-//   Nếu gọi renderQRCode ngay lập tức thì qrLargeCanvas.value vẫn còn null
-//   → phải chờ Vue render canvas xong mới vẽ được
+// wait for vue to render canvas before drawing qr
 const openQRModal = () => {
-  showQRModal.value = true  // bật v-if="showQRModal" → Vue render canvas trong modal
+  showQRModal.value = true
   setTimeout(() => {
-    renderQRCode(qrLargeCanvas.value, 320)  // sau 50ms canvas đã có, vẽ QR lớn
+    renderQRCode(qrLargeCanvas.value, 320)
   }, 50)
 }
 
-// =================================================================
-// usePollHub — kết nối SignalR nhận kết quả vote realtime
-// =================================================================
-// Truyền vào: pollCode + callback chạy khi server push dữ liệu mới
-//   hubData = { total: 42, results: [...], pollCode: '123456' }
-// Nhận về:
-//   isHubConnected: ref(true/false) hiển thị badge "Live" / "Connecting..."
-//   startHub: hàm bắt đầu kết nối, gọi sau khi đã load poll xong
 const { connected: isHubConnected, start: startHub } = usePollHub(pollCode, async (hubData) => {
-  totalVotes.value = hubData.total  // cập nhật tổng phiếu ngay
-  await loadResults()               // load lại kết quả chi tiết
+  totalVotes.value = hubData.totalVotes ?? hubData.total ?? 0
+  await loadResults()
 })
 
-// Lưu ID của setInterval để clearInterval khi unmount (không dùng ref vì không cần reactive)
 let fallbackInterval = null
 
-// =================================================================
-// onMounted — chạy một lần ngay sau khi component hiện lên trang
-// Flow: kiểm tra quyền → load poll → load kết quả → kết nối SignalR → vẽ QR
-// =================================================================
 onMounted(async () => {
-  // Nếu URL không có ?code=... thì không làm gì
   if (!pollCode) return
 
-  // --- Kiểm tra quyền truy cập ---
-  // Khi tạo poll thành công (CreatePollView), code được lưu vào localStorage
-  // localStorage['createdPolls'] = '["123456","789012"]'  (mảng JSON string)
-  const savedCodes = localStorage.getItem('createdPolls')   // lấy chuỗi JSON
-  const createdPollCodes = JSON.parse(savedCodes || '[]')   // parse thành mảng JS
+  // check access permission
+  const savedCodes = localStorage.getItem('createdPolls')
+  const createdPollCodes = JSON.parse(savedCodes || '[]')
 
   if (!createdPollCodes.includes(pollCode)) {
-    // pollCode không nằm trong danh sách đã tạo → không phải creator
-    accessDenied.value = true  // bật cờ → template hiện màn hình "Access Denied"
-    return                     // dừng ở đây, không load gì thêm
+    accessDenied.value = true
+    return
   }
 
   try {
-    // --- Load thông tin poll ---
-    // GET /api/polls/code/{pollCode} → { id, code, question, questionType, options, status, expireAt, ... }
     const pollResponse = await pollApi.getPollByCode(pollCode)
-    poll.value = pollResponse.data  // lưu vào ref → v-else-if="poll" trong template tự hiện
+    poll.value = pollResponse.data
 
-    // --- Load kết quả vote lần đầu ---
     await loadResults()
 
-    // --- Bắt đầu kết nối SignalR ---
-    // Từ đây server sẽ push dữ liệu mới mỗi khi có người vote
     startHub()
 
-    // --- Fallback polling ---
-    // Cứ 6 giây kiểm tra: nếu SignalR vẫn offline thì tự gọi API để lấy kết quả mới
+    // fallback polling when signalr disconnected
     fallbackInterval = setInterval(() => {
       if (!isHubConnected.value) {
         loadResults()
       }
     }, 6000)
 
-    // --- Vẽ QR thumbnail ---
-    // Delay 100ms vì Vue cần một "tick" để render <canvas ref="qrThumbnailCanvas">
-    // sau khi poll.value có giá trị và template v-else-if="poll" hiện ra
     setTimeout(() => {
       renderQRCode(qrThumbnailCanvas.value, 100)
     }, 100)
 
   } catch {
-    // Bất kỳ lỗi nào ở trên (network, server lỗi,...) → hiện toast lỗi
     toast.error('Failed to load data.')
   }
 })
 
-// =================================================================
-// onUnmounted — chạy khi user rời trang (component bị gỡ khỏi DOM)
-// =================================================================
-// Phải clearInterval để dừng fallbackInterval
-// Nếu không: interval tiếp tục chạy ngầm dù đã rời trang → memory leak
 onUnmounted(() => {
   clearInterval(fallbackInterval)
 })
 
-// =================================================================
-// stopPoll — đóng poll, không cho vote thêm
-// =================================================================
 const stopPoll = async () => {
-  confirmStop.value = false  // đóng modal trước khi gọi API
+  confirmStop.value = false
 
   try {
-    // PUT /api/polls/code/{code}: gửi toàn bộ data poll, chỉ ghi đè status = 'Closed'
-    // Spread {...poll.value} sao chép tất cả field hiện tại, sau đó ghi đè status
-    // Ví dụ gửi lên: { id:1, code:'123456', question:'...', status:'Closed', ... }
     await pollApi.updatePoll(pollCode, { ...poll.value, status: 'Closed' })
-
-    // Cập nhật local ngay (không gọi API lại) để badge đổi tức thì không cần chờ
     poll.value.status = 'Closed'
-
     toast.success('Poll stopped.')
   } catch {
     toast.error('Failed to stop poll.')
   }
 }
 
-// =================================================================
-// deletePoll — xóa poll vĩnh viễn
-// =================================================================
 const deletePoll = async () => {
-  confirmDelete.value = false  // đóng modal trước khi gọi API
+  confirmDelete.value = false
 
   try {
-    // DELETE /api/polls/code/{code}: xóa poll và tất cả vote liên quan trong DB
     await pollApi.deletePoll(pollCode)
 
-    // Xóa code này khỏi localStorage để trang analytics không còn truy cập được
     const savedCodes = localStorage.getItem('createdPolls')
     const createdPollCodes = JSON.parse(savedCodes || '[]')
-    // filter trả về mảng mới, chỉ giữ lại các code KHÁC với pollCode vừa xóa
     const updatedCodes = createdPollCodes.filter(code => code !== pollCode)
     localStorage.setItem('createdPolls', JSON.stringify(updatedCodes))
 
     toast.success('Poll deleted.')
-    router.push('/')  // chuyển về trang chủ
+    router.push('/')
   } catch {
     toast.error('Failed to delete poll.')
   }
 }
 
-// =================================================================
-// copyShareLink — copy link vào clipboard của trình duyệt
-// =================================================================
 const copyShareLink = async () => {
   try {
-    // navigator.clipboard là Web API của trình duyệt để thao tác clipboard
     await navigator.clipboard.writeText(shareLink())
     toast.success('Link copied!')
   } catch {

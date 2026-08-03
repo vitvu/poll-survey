@@ -1,6 +1,5 @@
 <template>
   <div class="container">
-    <!-- Hero -->
     <div class="py-12 text-center">
       <h1 class="text-4xl font-extrabold text-[--text] tracking-tight leading-tight mb-2">
         Create &amp; Share Polls
@@ -10,10 +9,8 @@
       </p>
     </div>
 
-    <!-- Grid: Join + Create -->
     <div class="grid grid-cols-2 gap-4 max-w-[760px] mx-auto max-sm:grid-cols-1">
 
-      <!-- Card 1: Join Poll -->
       <div class="card">
         <p class="text-[11px] font-bold uppercase tracking-widest text-[--text-4] mb-2">Join Poll</p>
         <h2 class="text-[17px] font-bold mb-1">Enter Room Code</h2>
@@ -64,7 +61,6 @@
       </div>
     </div>
 
-    <!-- How It Works -->
     <div class="mt-14 pb-5">
       <p class="text-[11px] font-bold uppercase tracking-widest text-[--text-4] text-center mb-5">
         How It Works

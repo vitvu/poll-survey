@@ -12,7 +12,6 @@
 
       <form @submit.prevent="submit">
 
-        <!-- Question -->
         <div class="mb-4">
           <label class="block text-[13.5px] font-semibold text-[--text-2] mb-1.5">
             Question <span class="text-[--red]">*</span>
@@ -154,84 +153,57 @@ import { pollApi } from '../api'
 const router = useRouter()
 const toast  = useToast()
 
-// true khi đang gọi API tạo poll → disable nút Create và hiện spinner
 const isLoading = ref(false)
-
-// 'none' = không giới hạn thời gian | 'custom' = người dùng tự chọn deadline
 const expireMode = ref('none')
 
-// Tạo giá trị mặc định cho datetime-local input: 5 phút kể từ bây giờ
-// datetime-local input cần format "YYYY-MM-DDTHH:MM" theo giờ LOCAL (không có timezone)
+// default datetime for input: 5 minutes from now in local timezone
 const getDefaultExpireDate = () => {
   const now = new Date()
-
-  // Cộng thêm 5 phút = 5 * 60 * 1000 milliseconds
   const fiveMinutesLater = new Date(now.getTime() + 5 * 60 * 1000)
-
-  // Chuyển về giờ local để hiển thị đúng trong input
-  // getTimezoneOffset() trả về phút lệch (VD: UTC+7 → -420)
-  // Trừ đi offset để ra giờ local đúng
   const localTime = new Date(fiveMinutesLater.getTime() - fiveMinutesLater.getTimezoneOffset() * 60000)
-
-  // Cắt còn "YYYY-MM-DDTHH:MM" — đúng format datetime-local cần
   return localTime.toISOString().slice(0, 16)
 }
 
-// Object chứa toàn bộ dữ liệu form
 const form = ref({
-  question:     '',                    // nội dung câu hỏi
-  questionType: 'Multiple Choice',     // loại câu hỏi mặc định
-  expireAt:     getDefaultExpireDate(), // deadline mặc định = ngày mai
-  options:      [{ text: '' }, { text: '' }], // ít nhất 2 option cho Multiple Choice
+  question:     '',
+  questionType: 'Multiple Choice',
+  expireAt:     getDefaultExpireDate(),
+  options:      [{ text: '' }, { text: '' }],
 })
 
-// Đếm số option có nội dung (không rỗng) — hiển thị "2 / 6" bên cạnh label Options
 const countValidOptions = () => {
   return form.value.options.filter(option => option.text.trim() !== '').length
 }
 
-// Thêm một option trống vào cuối danh sách (tối đa 6)
 const addOption = () => {
   if (form.value.options.length < 6) {
     form.value.options.push({ text: '' })
   }
 }
 
-// Xóa option tại vị trí index (tối thiểu phải còn 2 option)
 const removeOption = (index) => {
   if (form.value.options.length > 2) {
-    form.value.options.splice(index, 1)  // splice(vị_trí, số_phần_tử_xóa)
+    form.value.options.splice(index, 1)
   }
 }
 
-// Lưu code poll vừa tạo vào localStorage để biết đây là poll của mình
-// Dùng để kiểm tra quyền truy cập trang Analytics
 const saveCreatedPollCode = (pollCode) => {
-  const savedCodes     = localStorage.getItem('createdPolls')
-  const existingCodes  = JSON.parse(savedCodes || '[]')
+  const savedCodes = localStorage.getItem('createdPolls')
+  const existingCodes = JSON.parse(savedCodes || '[]')
 
-  // Không lưu trùng nếu code đã tồn tại
   if (!existingCodes.includes(pollCode)) {
     existingCodes.push(pollCode)
     localStorage.setItem('createdPolls', JSON.stringify(existingCodes))
   }
 }
 
-// Chuyển chuỗi datetime-local (không có timezone) thành UTC ISO string
-// Vấn đề: new Date("2026-08-02T13:42") → JS hiểu là UTC → toISOString() = "06:42Z" (sai)
-// Cách đúng: coi chuỗi đó là giờ LOCAL, rồi tự tính UTC bằng cách cộng offset
+// convert local datetime string to utc iso
 const localDateTimeToUtcIso = (localDateTimeString) => {
-  // Tạo Date object từ chuỗi — JS parse "2026-08-02T13:42" theo múi giờ local
-  // Ví dụ: UTC+7 → JS lưu nội bộ là "2026-08-02T06:42Z" (đúng)
   const date = new Date(localDateTimeString)
-
-  // .toISOString() trả về UTC đúng rồi vì Date object đã tính offset
   return date.toISOString()
 }
 
-// Xử lý submit form tạo poll
 const submit = async () => {
-  // --- Validate trước khi gửi ---
   if (!form.value.question.trim()) {
     toast.error('Please enter a question.')
     return
@@ -244,14 +216,11 @@ const submit = async () => {
   isLoading.value = true
 
   try {
-    // Tạo room code ngẫu nhiên 6 chữ số (100000 → 999999)
     const roomCode = Math.floor(100000 + Math.random() * 900000).toString()
 
-    // Nếu chọn "No Limit", set expireAt = 100 năm sau (coi như không giới hạn)
     const noLimitExpireDate = new Date()
     noLimitExpireDate.setFullYear(noLimitExpireDate.getFullYear() + 100)
 
-    // Chỉ gửi options khi là Multiple Choice, các loại khác backend tự xử lý
     const optionsToSend = []
     if (form.value.questionType === 'Multiple Choice') {
       for (const option of form.value.options) {
@@ -261,35 +230,28 @@ const submit = async () => {
       }
     }
 
-    // Object gửi lên backend
     const payload = {
       code:         roomCode,
       question:     form.value.question.trim(),
       questionType: form.value.questionType,
       expireAt:     expireMode.value === 'custom'
-                      ? localDateTimeToUtcIso(form.value.expireAt)  // giờ local → UTC ISO string
-                      : noLimitExpireDate.toISOString(),             // 100 năm sau
+                      ? localDateTimeToUtcIso(form.value.expireAt)
+                      : noLimitExpireDate.toISOString(),
       options:      optionsToSend,
     }
 
-    // Gọi POST /api/polls → backend tạo poll, trả về object poll có id
     const response = await pollApi.createPoll(payload)
-
-    // Backend trả về { poll: {...} } hoặc trực tiếp { id, code, ... } tùy version
     const createdPoll = response.data.poll || response.data
 
-    // Lưu code vào localStorage để xác nhận quyền creator
     saveCreatedPollCode(createdPoll.code)
-
     toast.success('Poll created!')
 
-    // Chuyển sang trang Analytics của poll vừa tạo
     router.push({ name: 'Analytics', query: { code: createdPoll.code } })
 
   } catch (error) {
     toast.error(error.message || 'Failed to create poll.')
   } finally {
-    isLoading.value = false  // tắt spinner dù thành công hay lỗi
+    isLoading.value = false
   }
 }
 </script>

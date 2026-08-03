@@ -104,15 +104,13 @@ namespace PollService.Controllers
                 "Multiple Choice" when pollData.Options?.Count >= 2 => pollData.Options,
                 // for multiple choice without options: throw error
                 "Multiple Choice" => throw new Exception("Multiple Choice requires at least 2 options."),
-                // for yes/no: auto-generate yes and no options
-                "Yes / No" => new List<Option> 
-                { 
-                    // create yes option
-                    new() { Text = "Yes" }, 
-                    // create no option
-                    new() { Text = "No" } 
-                },
-                // for other types: use empty options list
+                // for yes/no: no options needed, vote uses VoteValue 0 or 1
+                "Yes / No" => new List<Option>(),
+                // for rating: no options needed, vote uses VoteValue 1-5
+                "Rating" => new List<Option>(),
+                // for open text: no options needed, vote uses VoteValue for text
+                "Open Text" => new List<Option>(),
+                // default: empty list
                 _ => new List<Option>()
             };
 
