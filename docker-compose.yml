@@ -1,0 +1,101 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────
+# Dùng MySQL external (hosting sẵn có) → KHÔNG cần container DB
+# Tất cả thông tin kết nối đặt trong file .env
+# ─────────────────────────────────────────────────────────────────
+
+services:
+  # ─── MySQL Database (for local development) ───────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: mysql-db
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: PollDB
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    profiles:
+      - local-db
+    restart: on-failure
+
+  # ─── PollService ──────────────────────────────────────────────
+  poll-service:
+    build:
+      context: .
+      dockerfile: PollService/Dockerfile
+    container_name: poll-service
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__DefaultConnection: "${POLL_DB_CONNECTION}"
+      AllowedOrigins__0: "${FRONTEND_URL}"
+    ports:
+      - "5001:8080"
+    restart: on-failure
+
+  # ─── VoteService ──────────────────────────────────────────────
+  vote-service:
+    build:
+      context: .
+      dockerfile: VoteService/Dockerfile
+    container_name: vote-service
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__DefaultConnection: "${VOTE_DB_CONNECTION}"
+      Services__PollServiceUrl: "http://poll-service:8080"
+      AllowedOrigins__0: "${FRONTEND_URL}"
+    ports:
+      - "5002:8080"
+    depends_on:
+      - poll-service
+    restart: on-failure
+
+  # ─── OcelotGateway ────────────────────────────────────────────
+  gateway:
+    build:
+      context: .
+      dockerfile: OcelotGateway/Dockerfile
+    container_name: ocelot-gateway
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+    ports:
+      - "5000:8080"
+    depends_on:
+      - poll-service
+      - vote-service
+    restart: on-failure
+
+  # ─── Vue Client ───────────────────────────────────────────────
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+      args:
+        # URL gateway từ góc nhìn của browser (người dùng truy cập)
+        VUE_APP_API_BASE_URL: "${GATEWAY_PUBLIC_URL}"
+        # SignalR kết nối thẳng vào VoteService (bypass gateway cho WebSocket)
+        VUE_APP_VOTE_SERVICE_URL: "${VOTE_SERVICE_PUBLIC_URL}"
+    container_name: poll-client
+    ports:
+      - "8081:80"
+    depends_on:
+      - gateway
+    restart: on-failure
+
+  # ─── MySQL Diagnostics (helper container to test connectivity) ──
+  mysql-test:
+    image: mysql:8.0
+    container_name: mysql-diagnostics
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+    command: sleep infinity
+    profiles:
+      - debug
+
+volumes:
+  mysql-data:

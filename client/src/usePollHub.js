@@ -1,7 +1,10 @@
 import { ref, onUnmounted } from 'vue'
 import * as signalR from '@microsoft/signalr'
 
-const VOTE_SERVICE_URL = 'https://localhost:5002'
+// Đọc URL VoteService từ biến môi trường được inject lúc build
+// - Local: đặt trong client/.env.local → http://localhost:5002
+// - Docker/Cloud: truyền qua build arg VUE_APP_VOTE_SERVICE_URL
+const VOTE_SERVICE_URL = process.env.VUE_APP_VOTE_SERVICE_URL || 'http://localhost:5002'
 
 export function usePollHub(pollCode, onVoteUpdated) {
   const connected = ref(false)

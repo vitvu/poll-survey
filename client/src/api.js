@@ -24,8 +24,11 @@
 import axios from 'axios'
 
 // ── Tạo axios instance với cấu hình mặc định ─────────────────────
+// Đọc URL từ biến môi trường được inject lúc build (VUE_APP_API_BASE_URL)
+// - Local: đặt trong client/.env.local → http://localhost:5000
+// - Docker/Cloud: truyền qua build arg VUE_APP_API_BASE_URL
 const apiClient = axios.create({
-  baseURL: 'https://localhost:5000', // Mọi request đều bắt đầu từ địa chỉ này (OcelotGateway)
+  baseURL: process.env.VUE_APP_API_BASE_URL || 'http://localhost:5000', // OcelotGateway URL
   headers: { 'Content-Type': 'application/json' }, // Nói với server: "tôi gửi dữ liệu dạng JSON"
   timeout: 10000, // Nếu server không trả lời trong 10 giây → báo lỗi (tránh chờ mãi mãi)
 })

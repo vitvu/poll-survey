@@ -2,8 +2,13 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 
+# URL của OcelotGateway (từ góc nhìn browser)
 ARG VUE_APP_API_BASE_URL=http://localhost:5000
 ENV VUE_APP_API_BASE_URL=$VUE_APP_API_BASE_URL
+
+# URL của VoteService để kết nối SignalR
+ARG VUE_APP_VOTE_SERVICE_URL=http://localhost:5002
+ENV VUE_APP_VOTE_SERVICE_URL=$VUE_APP_VOTE_SERVICE_URL
 
 COPY package*.json ./
 RUN npm ci

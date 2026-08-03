@@ -22,11 +22,6 @@ var app = builder.Build();
 
 app.UseCors("AllowAll");
 
-app.UseDefaultFiles();
-app.UseStaticFiles();
-
-app.MapFallbackToFile("index.html");
-
 await app.UseOcelot();
 
 app.Run();

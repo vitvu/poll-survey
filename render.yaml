@@ -1,0 +1,75 @@
+services:
+  # Poll Service - Manages polls and options
+  - type: web
+    name: poll-service
+    env: docker
+    dockerfilePath: ./PollService/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /swagger/index.html
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ASPNETCORE_URLS
+        value: http://+:8080
+      - key: ConnectionStrings__DefaultConnection
+        sync: false
+      - key: AllowedOrigins__0
+        value: https://poll-client.onrender.com
+
+  # Vote Service - Manages votes and SignalR
+  - type: web
+    name: vote-service
+    env: docker
+    dockerfilePath: ./VoteService/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /swagger/index.html
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ASPNETCORE_URLS
+        value: http://+:8080
+      - key: ConnectionStrings__DefaultConnection
+        sync: false
+      - key: Services__PollServiceUrl
+        value: https://poll-service.onrender.com
+      - key: AllowedOrigins__0
+        value: https://poll-client.onrender.com
+
+  # Ocelot Gateway - API Gateway
+  - type: web
+    name: ocelot-gateway
+    env: docker
+    dockerfilePath: ./OcelotGateway/Dockerfile
+    dockerContext: .
+    plan: free
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ASPNETCORE_URLS
+        value: http://+:8080
+
+  # Frontend Client - Vue 3 SPA
+  - type: web
+    name: poll-client
+    env: static
+    buildCommand: |
+      cd client
+      npm install
+      export VUE_APP_API_BASE_URL="https://ocelot-gateway.onrender.com"
+      export VUE_APP_VOTE_SERVICE_URL="https://vote-service.onrender.com"
+      npm run build
+    staticPublishPath: ./client/dist
+    pullRequestPreviewsEnabled: true
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
