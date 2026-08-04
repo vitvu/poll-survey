@@ -167,44 +167,13 @@
       </form>
     </div>
 
-    <!-- manual code entry form -->
-    <div v-else class="card max-w-[440px] w-full mx-auto">
-      <p class="text-[11px] font-bold uppercase tracking-widest text-[--text-4] mb-1">Join Poll</p>
-      <h1 class="text-[18px] font-extrabold mb-1">Enter Room Code</h1>
-      <p class="text-[14px] text-[--text-3] mb-5">Enter 6-digit code from the creator</p>
-
-      <form @submit.prevent="loadPollByManualCode">
-        <input
-          v-model="manualCode"
-          type="text"
-          inputmode="numeric"
-          maxlength="6"
-          placeholder="000000"
-          class="code-input"
-          :class="{ error: manualCodeError }"
-          autocomplete="off"
-        />
-
-        <p v-if="manualCodeError"
-          class="inline-flex items-center gap-1 text-[12.5px] text-[--red] font-semibold mt-2 justify-center">
-          <AlertCircle :size="13" /> {{ manualCodeError }}
-        </p>
-
-        <button type="submit" class="btn btn-primary btn-lg w-full mt-5" :disabled="isLoadingManual">
-          <span v-if="isLoadingManual" class="spinner"></span>
-          <LogIn v-else :size="15" />
-          Join Room
-        </button>
-      </form>
-    </div>
-
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
-import { CheckCircle2, Check, AlertCircle, Lock, Send, LogIn, Star, ArrowLeft, SearchX } from '@lucide/vue'
+import { useRoute, useRouter } from 'vue-router'
+import { CheckCircle2, Check, AlertCircle, Lock, Send, Star, ArrowLeft, SearchX } from '@lucide/vue'
 import { pollApi } from '../api'
 import { getVoterToken } from '../voterToken'
 
@@ -221,9 +190,7 @@ const voteValue = ref('')
 const hasSubmitError = ref(false)
 const isSubmitting = ref(false)
 
-const manualCode = ref('')
-const manualCodeError = ref('')
-const isLoadingManual = ref(false)
+const router = useRouter()
 
 const isPollExpired = () => {
   if (!poll.value) return true
@@ -247,24 +214,6 @@ const loadPoll = async (pollCode) => {
   } catch {
     pollNotFound.value = true
   }
-}
-
-const loadPollByManualCode = async () => {
-  if (manualCode.value.length < 6) {
-    manualCodeError.value = 'Please enter all 6 digits'
-    return
-  }
-
-  isLoadingManual.value = true
-  manualCodeError.value = ''
-
-  await loadPoll(manualCode.value)
-
-  if (pollNotFound.value) {
-    manualCodeError.value = 'Poll not found'
-  }
-
-  isLoadingManual.value = false
 }
 
 const submitVote = async () => {
@@ -321,6 +270,9 @@ const submitVote = async () => {
 onMounted(() => {
   if (pollCodeFromUrl) {
     loadPoll(pollCodeFromUrl)
+  } else {
+    // Redirect to home if no poll code in URL
+    router.push('/')
   }
 })
 </script>

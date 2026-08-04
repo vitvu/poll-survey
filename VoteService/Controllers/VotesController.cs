@@ -23,8 +23,8 @@ namespace VoteService.Controllers
             IHubContext<VoteHub> signalRHubContext)
         {
             _databaseContext = databaseContext;
-            _httpClientFactory = httpClientFactory;
-            _configuration = configuration;
+            _httpClientFactory = httpClientFactory; // call api poll service
+            _configuration = configuration; // url poll service
             _signalRHubContext = signalRHubContext;
         }
 

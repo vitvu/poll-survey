@@ -24,6 +24,7 @@ namespace PollService.Controllers
 
         [HttpGet("code/{code}")]
         public async Task<IActionResult> GetPollByCode(string code)
+        //
         {
             // query polls table for matching code
             var pollRecord = await _databaseContext.Polls

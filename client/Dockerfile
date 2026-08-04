@@ -11,7 +11,7 @@ ARG VUE_APP_VOTE_SERVICE_URL=http://localhost:5002
 ENV VUE_APP_VOTE_SERVICE_URL=$VUE_APP_VOTE_SERVICE_URL
 
 COPY package*.json ./
-RUN npm ci
+RUN npm install
 
 COPY . .
 RUN npm run build
