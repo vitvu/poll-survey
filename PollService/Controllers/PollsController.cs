@@ -17,7 +17,7 @@ namespace PollService.Controllers
             _databaseContext = databaseContext;
             _httpClientFactory = httpClientFactory;
         }
-
+//read get
         [HttpGet("code/{code}")]
         public async Task<IActionResult> GetPollByCode(string code)
         //
@@ -31,7 +31,7 @@ namespace PollService.Controllers
 
             return Ok(pollRecord);
         }
-
+//read check exist
         [HttpGet("check/{code}")]
         public async Task<IActionResult> ValidatePoll(string code)
         {
@@ -111,7 +111,7 @@ namespace PollService.Controllers
 
             return NoContent();
         }
-
+//call api to vote to delete
         [HttpDelete("code/{code}")]
         public async Task<IActionResult> DeletePoll(string code)
         {
@@ -143,6 +143,7 @@ namespace PollService.Controllers
                 Console.WriteLine($"Warning: Failed to delete votes for poll {pollCode}: {exceptionMessage.Message}");
             }
         }
+//call api to vote to alert close
 
         private async Task BroadcastPollClosedToVoteService(string pollCode)
         {
