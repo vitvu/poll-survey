@@ -1,6 +1,6 @@
 <template>
   <div class="vote-page">
-// pool not found
+<!-- pool not found -->
     <div v-if="pollNotFound" class="card max-w-[440px] w-full mx-auto text-center">
       <div class="w-16 h-16 rounded-full bg-[--red-light] border border-[#fca5a5]
                   flex items-center justify-center mx-auto mb-3">
@@ -14,7 +14,9 @@
         <ArrowLeft :size="14" /> Go Home
       </router-link>
     </div>
-// vote alrready
+
+<!-- vote alrready -->
+
     <div v-else-if="alreadyVoted" class="card max-w-[440px] w-full mx-auto text-center">
       <div class="w-16 h-16 rounded-full bg-[--green-light] border border-[#86efac]
                   flex items-center justify-center mx-auto mb-3">
@@ -23,7 +25,7 @@
       <h2 class="text-[18px] font-extrabold text-[--text] mb-1.5">Already Voted</h2>
       <p class="text-[14px] text-[--text-3]">You have already participated in this poll.</p>
     </div>
-// sucess
+<!-- sucess -->
     <div v-else-if="voteSubmitted" class="card max-w-[440px] w-full mx-auto text-center">
       <div class="w-16 h-16 rounded-full bg-[--green-light] border border-[#86efac]
                   flex items-center justify-center mx-auto mb-3">
@@ -34,7 +36,7 @@
     </div>
 
     <div v-else-if="poll" class="vote-card">
-// code + header + ques
+<!-- code + header + ques -->
       <div class="p-6 pb-5 border-b border-[--border]">
         <div class="flex items-center justify-between mb-2">
           <span class="badge badge-blue">{{ poll.code }}</span>
@@ -48,7 +50,7 @@
         </h1>
         <p class="text-[12.5px] text-[--text-4] font-semibold">{{ poll.questionType }}</p>
       </div>
-// pool close information
+<!-- pool close information -->
       <div v-if="isPollExpired()"
         class="mx-6 mt-4 flex items-center gap-2 p-3 rounded-[--radius]
                bg-[--red-light] text-[#991b1b] border border-[#fca5a5] text-[13.5px] font-medium">
@@ -56,7 +58,7 @@
       </div>
 
       <form v-else class="p-5" @submit.prevent="submitVote">
-// radio selection list
+<!-- radio selection list -->
         <div v-if="poll.questionType === 'Multiple Choice'"
           class="flex flex-col gap-2 mb-5">
           <label
@@ -69,7 +71,7 @@
             }"
           >
             <input type="radio" :value="option.id" v-model="selectedOptionId" class="sr-only" />
-// radio make
+<!-- radio make -->
             <div class="vote-option-radio">
               <div class="radio-inner" :class="{ filled: selectedOptionId === option.id }"></div>
             </div>
@@ -123,7 +125,8 @@
             <AlertCircle :size="13" /> Please select an option
           </p>
         </div>
-// star rate
+
+<!-- star rate -->
         <div v-else-if="poll.questionType === 'Rating'" class="text-center py-2 pb-5">
           <div class="flex gap-1 justify-center">
             <button
@@ -134,7 +137,7 @@
               :class="{ on: starNumber <= Number(voteValue) }"
               @click="voteValue = String(starNumber)"
             >
-// fill color
+<!-- fill color -->
               <Star :size="36" :fill="starNumber <= Number(voteValue) ? 'currentColor' : 'none'" />
             </button>
           </div>
@@ -144,7 +147,7 @@
             <AlertCircle :size="13" /> Please select a rating
           </p>
         </div>
-// text free
+<!-- open text -->
         <div v-else-if="poll.questionType === 'Open Text'" class="mb-5">
           <textarea
             v-model="voteValue"
@@ -173,6 +176,7 @@
 
 <script setup>
 // id in url 
+<!-- id in url -->
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { CheckCircle2, Check, AlertCircle, Lock, Send, Star, ArrowLeft, SearchX } from '@lucide/vue'
