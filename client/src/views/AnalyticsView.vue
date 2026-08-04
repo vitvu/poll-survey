@@ -14,7 +14,7 @@
       <router-link to="/" class="btn btn-ghost">Go Home</router-link>
     </div>
 
-    <!-- Nội dung chính — poll=null thì không hiện gì, tự load xong sẽ hiện -->
+    <!-- If poll is null, nothing is displayed; it will appear automatically once loading is complete. -->
     <template v-else-if="poll">
 
       <!-- Header Card -->
@@ -51,7 +51,7 @@
               </button>
             </div>
 
-            <!-- Trạng thái kết nối realtime -->
+            <!-- Connection status realtime -->
             <span class="badge" :class="isHubConnected ? 'badge-green' : 'badge-gray'">
               <span class="live-dot"></span>
               {{ isHubConnected ? 'Live' : 'Connecting...' }}
@@ -76,7 +76,7 @@
             </div>
           </div>
 
-          <!-- QR — bấm mở modal -->
+          <!-- Modal QR -->
           <div class="w-[100px] h-[100px] shrink-0 cursor-pointer rounded-[--radius] overflow-hidden bg-white p-1 shadow-card hover:opacity-85 transition-opacity"
             @click="openQRModal">
             <canvas ref="qrThumbnailCanvas" class="w-full h-full"></canvas>
@@ -137,7 +137,7 @@
       </div>
     </template>
 
-    <!-- QR Modal — dùng v-if nên canvas chỉ tồn tại khi modal mở -->
+    <!-- QR Modal — uses v-if, so the canvas only exists when the modal is open -->
     <div v-if="showQRModal" class="modal-bg" @click.self="showQRModal = false">
       <div class="modal-box">
         <button class="modal-close" @click="showQRModal = false"><X :size="20" /></button>
