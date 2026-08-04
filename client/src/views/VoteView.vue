@@ -176,7 +176,6 @@
 
 <script setup>
 // id in url 
-<!-- id in url -->
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { CheckCircle2, Check, AlertCircle, Lock, Send, Star, ArrowLeft, SearchX } from '@lucide/vue'
