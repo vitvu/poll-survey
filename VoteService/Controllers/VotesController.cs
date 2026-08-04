@@ -32,15 +32,24 @@ namespace VoteService.Controllers
         public async Task<IActionResult> SubmitVote([FromBody] Vote voteData)
         {
             // Validate required fields
-            if (string.IsNullOrWhiteSpace(voteData.PollCode) || string.IsNullOrWhiteSpace(voteData.VoterToken))
-                return BadRequest(new { message = "Missing required data." });
+            if (string.IsNullOrWhiteSpace(voteData.PollCode))
+            {
+                return BadRequest(new { message = "Missing poll code." });
+            }
+
+            if (string.IsNullOrWhiteSpace(voteData.VoterToken))
+            {
+                return BadRequest(new { message = "Missing voter token." });
+            }
 
             // Check if this voter already voted on this poll
             bool voterAlreadyVoted = await _databaseContext.Votes.AnyAsync(vote =>
                 vote.PollCode == voteData.PollCode && vote.VoterToken == voteData.VoterToken);
 
             if (voterAlreadyVoted)
+            {
                 return BadRequest(new { message = "You have already voted." });
+            }
 
             // Call PollService to validate poll exists and is active
             HttpClient httpClient = _httpClientFactory.CreateClient();
@@ -50,7 +59,9 @@ namespace VoteService.Controllers
             );
 
             if (!pollValidationResponse.IsSuccessStatusCode)
+            {
                 return BadRequest(new { message = "Poll is invalid or has been closed." });
+            }
 
             // Save vote to database
             voteData.CreatedAt = DateTime.UtcNow;
@@ -62,11 +73,9 @@ namespace VoteService.Controllers
                 .Where(vote => vote.PollCode == voteData.PollCode)
                 .ToListAsync();
 
-            // Group votes by OptionId (for Multiple Choice) or VoteValue (for Yes/No, Rating, Open Text)
-            // - Multiple Choice: OptionId > 0, group by OptionId
-            // - Yes/No, Rating, Open Text: OptionId = 0, group by VoteValue
+            // Group votes by option or value
             var voteResultsGrouped = allVotesForPoll
-                .GroupBy(vote => vote.OptionId == 0 ? $"value_{vote.VoteValue}" : $"option_{vote.OptionId}")
+                .GroupBy(vote => GetGroupKey(vote))
                 .Select(group => new
                 {
                     optionId = group.First().OptionId,
@@ -99,9 +108,9 @@ namespace VoteService.Controllers
                 .OrderByDescending(vote => vote.CreatedAt)
                 .ToListAsync();
 
-            // Group votes by OptionId (Multiple Choice) or VoteValue (Yes/No, Rating, Open Text)
+            // Group votes by option or value
             var voteSummary = allVotesForPoll
-                .GroupBy(vote => vote.OptionId == 0 ? $"value_{vote.VoteValue}" : $"option_{vote.OptionId}")
+                .GroupBy(vote => GetGroupKey(vote))
                 .Select(group => new
                 {
                     optionId = group.First().OptionId,
@@ -133,7 +142,9 @@ namespace VoteService.Controllers
         public async Task<IActionResult> DeleteVotes([FromQuery] string pollCode)
         {
             if (string.IsNullOrWhiteSpace(pollCode))
+            {
                 return BadRequest(new { message = "pollCode is required." });
+            }
 
             // Fetch and delete all votes for this poll
             List<Vote> votesToDelete = await _databaseContext.Votes
@@ -150,7 +161,9 @@ namespace VoteService.Controllers
         public async Task<IActionResult> BroadcastPollClosed([FromBody] PollClosedRequest request)
         {
             if (string.IsNullOrWhiteSpace(request.PollCode))
+            {
                 return BadRequest(new { message = "PollCode is required." });
+            }
 
             // Notify all clients in the poll room that voting has ended
             await _signalRHubContext.Clients
@@ -162,6 +175,18 @@ namespace VoteService.Controllers
                 });
 
             return Ok(new { message = "Broadcast sent." });
+        }
+
+        private string GetGroupKey(Vote vote)
+        {
+            if (vote.OptionId == 0)
+            {
+                return $"value_{vote.VoteValue}";
+            }
+            else
+            {
+                return $"option_{vote.OptionId}";
+            }
         }
     }
 
