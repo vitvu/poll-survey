@@ -4,7 +4,6 @@ using VoteService.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// đọc danh sách origin được phép từ config (hỗ trợ cả local và cloud)
 var allowedOrigins = builder.Configuration
     .GetSection("AllowedOrigins")
     .Get<string[]>() ?? new[] { "http://localhost:8080", "http://localhost:5173" };
@@ -53,8 +52,17 @@ var app = builder.Build();
 // auto-create tables if they don't exist (runs on startup)
 using (var scope = app.Services.CreateScope())
 {
-    var db = scope.ServiceProvider.GetRequiredService<VoteDbContext>();
-    db.Database.EnsureCreated();
+    try
+    {
+        var db = scope.ServiceProvider.GetRequiredService<VoteDbContext>();
+        db.Database.EnsureCreated();
+    }
+    catch (Exception ex)
+    {
+        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        logger.LogError(ex, "Failed to ensure database created");
+        throw;
+    }
 }
 
 // use cors middleware with allowall policy

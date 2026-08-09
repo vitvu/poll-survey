@@ -2,28 +2,16 @@ namespace PollService.Models
 {
     public class Poll
     {
-        // auto-incremented primary key from database
         public int Id { get; set; }
-
-        // unique poll code used in urls (e.g. poll123)
         public string Code { get; set; } = string.Empty;
-
-        // the question text displayed to voters
         public string Question { get; set; } = string.Empty;
 
-        // type of poll: multiple choice, yes no, rating, open text
-        public string QuestionType { get; set; } = string.Empty;
+        // 1=Multiple Choice, 2=Yes/No, 3=Rating, 4=Open Text
+        public int QuestionType { get; set; } = 1;
 
-        // current status: active or closed
-        public string Status { get; set; } = "Active";
+        // 0=Active, 1=Closed
+        public int Status { get; set; } = 0;
 
-        // date and time when poll stops accepting votes
-        public DateTime ExpireAt { get; set; }
-
-        // timestamp when poll was created
-        public DateTime CreatedAt { get; set; } = DateTime.Now;
-
-        // list of voting options for this poll
         public List<Option> Options { get; set; } = new List<Option>();
     }
 }

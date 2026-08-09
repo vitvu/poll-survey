@@ -1,164 +1,171 @@
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using PollService.Data;
 using PollService.Models;
-
 namespace PollService.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
     public class PollsController : ControllerBase
     {
-        private readonly PollDbContext _databaseContext;
+        private readonly PollDbContext _context;
         private readonly IHttpClientFactory _httpClientFactory;
 
-        public PollsController(PollDbContext databaseContext, IHttpClientFactory httpClientFactory)
+        public PollsController(PollDbContext context, IHttpClientFactory httpClientFactory)
         {
-            _databaseContext = databaseContext;
+            _context = context;
             _httpClientFactory = httpClientFactory;
         }
-//read get
+
+        // GET: api/Polls/code/12345678
         [HttpGet("code/{code}")]
         public async Task<IActionResult> GetPollByCode(string code)
-        //
         {
-            var pollRecord = await _databaseContext.Polls
-                .Include(pollEntity => pollEntity.Options)
-                .FirstOrDefaultAsync(pollEntity => pollEntity.Code == code);
+            var poll = await _context.Polls
+                .Include(poll => poll.Options)
+                .FirstOrDefaultAsync(poll => poll.Code == code);
 
-            if (pollRecord == null)
+            if (poll == null)
+            {
                 return NotFound();
+            }
 
-            return Ok(pollRecord);
+            return Ok(poll);
         }
-//read check exist
-        [HttpGet("check/{code}")]
-        public async Task<IActionResult> ValidatePoll(string code)
-        {
-            var pollRecord = await _databaseContext.Polls
-                .Include(pollEntity => pollEntity.Options)
-                .FirstOrDefaultAsync(pollEntity => pollEntity.Code == code);
 
-            if (pollRecord == null)
+        // GET: api/Polls/can-vote/12345678
+        [HttpGet("can-vote/{code}")]
+        public async Task<IActionResult> CanVote(string code)
+        {
+            var poll = await _context.Polls.FirstOrDefaultAsync(poll => poll.Code == code);
+
+            if (poll == null)
+            {
                 return NotFound(new { message = "Poll does not exist." });
+            }
 
-            if (pollRecord.Status != "Active")
+            if (poll.Status == 1)
+            {
                 return BadRequest(new { message = "Poll is closed." });
+            }
 
-            if (pollRecord.ExpireAt <= DateTime.UtcNow)
-                return BadRequest(new { message = "Poll has expired." });
-
-            return Ok(pollRecord);
+            return Ok(new { canVote = true });
         }
 
+        // POST: api/Polls
         [HttpPost]
-        public async Task<IActionResult> CreatePoll([FromBody] Poll pollData)
+        public async Task<IActionResult> CreatePoll([FromBody] Poll poll)
         {
-            if (string.IsNullOrWhiteSpace(pollData.Question))
-                return BadRequest(new { message = "Question cannot be empty." });
-
-            pollData.ExpireAt = DateTime.SpecifyKind(pollData.ExpireAt, DateTimeKind.Utc);
-            pollData.CreatedAt = DateTime.SpecifyKind(pollData.CreatedAt, DateTimeKind.Utc);
-
-            if (pollData.ExpireAt <= DateTime.UtcNow)
-                return BadRequest(new { message = "Expiration date must be in the future." });
-
-            bool codeExists = await _databaseContext.Polls
-                .AnyAsync(existingPoll => existingPoll.Code == pollData.Code);
-            if (codeExists)
-                return BadRequest(new { message = "Code already exists." });
-
-            pollData.Options = pollData.QuestionType switch
+            if (string.IsNullOrWhiteSpace(poll.Question))
             {
-                "Multiple Choice" when pollData.Options?.Count >= 2 => pollData.Options,
-                "Multiple Choice" => throw new Exception("Multiple Choice requires at least 2 options."),
-                "Yes / No" => new List<Option>(),
-                "Rating" => new List<Option>(),
-                "Open Text" => new List<Option>(),
-                _ => new List<Option>()
-            };
+                return BadRequest(new { message = "Question cannot be empty." });
+            }
 
-            pollData.CreatedAt = DateTime.UtcNow;
-            pollData.Status ??= "Active";
+            if (poll.QuestionType < 1 || poll.QuestionType > 4)
+            {
+                return BadRequest(new { message = "Invalid question type. Must be 1 to 4." });
+            }
 
-            _databaseContext.Polls.Add(pollData);
-            await _databaseContext.SaveChangesAsync();
+            if (poll.QuestionType == 1 && (poll.Options == null || poll.Options.Count < 2))
+            {
+                return BadRequest(new { message = "Multiple Choice requires at least 2 options." });
+            }
 
-            return CreatedAtAction(nameof(GetPollByCode), new { code = pollData.Code }, pollData);
+            if (poll.QuestionType != 1)
+            {
+                poll.Options = new List<Option>();
+            }
+
+            poll.Code = GeneratePollCode();
+            poll.Status = 0;
+
+            _context.Polls.Add(poll);
+            await _context.SaveChangesAsync();
+
+            return Created($"/api/polls/code/{poll.Code}", new { poll = poll });
         }
 
+        // PUT: api/Polls/code/12345678
         [HttpPut("code/{code}")]
-        public async Task<IActionResult> UpdatePoll(string code, [FromBody] Poll pollUpdateData)
+        public async Task<IActionResult> UpdatePoll(string code, [FromBody] Poll pollData)
         {
-            var existingPoll = await _databaseContext.Polls
-                .FirstOrDefaultAsync(pollEntity => pollEntity.Code == code);
+            var poll = await _context.Polls.FirstOrDefaultAsync(poll => poll.Code == code);
 
-            if (existingPoll == null)
-                return NotFound();
-
-            bool statusIsChanging = existingPoll.Status != pollUpdateData.Status;
-
-            existingPoll.Status = pollUpdateData.Status;
-            existingPoll.Question = pollUpdateData.Question;
-            existingPoll.ExpireAt = pollUpdateData.ExpireAt;
-
-            await _databaseContext.SaveChangesAsync();
-
-            if (statusIsChanging && pollUpdateData.Status == "Closed")
+            if (poll == null)
             {
-                await BroadcastPollClosedToVoteService(existingPoll.Code);
+                return NotFound();
+            }
+
+            bool statusChanged = poll.Status != pollData.Status;
+
+            poll.Status = pollData.Status;
+            poll.Question = pollData.Question;
+
+            await _context.SaveChangesAsync();
+
+            if (statusChanged && pollData.Status == 1)
+            {
+                await NotifyPollClosed(code);
             }
 
             return NoContent();
         }
-//call api to vote to delete
+
+        // DELETE: api/Polls/code/12345678
         [HttpDelete("code/{code}")]
         public async Task<IActionResult> DeletePoll(string code)
         {
-            var pollToDelete = await _databaseContext.Polls
-                .Include(pollEntity => pollEntity.Options)
-                .FirstOrDefaultAsync(pollEntity => pollEntity.Code == code);
+            var poll = await _context.Polls
+                .Include(poll => poll.Options)
+                .FirstOrDefaultAsync(poll => poll.Code == code);
 
-            if (pollToDelete == null)
+            if (poll == null)
+            {
                 return NotFound();
+            }
 
-            _databaseContext.Polls.Remove(pollToDelete);
-            await _databaseContext.SaveChangesAsync();
+            _context.Polls.Remove(poll);
+            await _context.SaveChangesAsync();
 
             await DeleteVotesFromVoteService(code);
 
             return NoContent();
         }
 
+        private string GeneratePollCode()
+        {
+            return Random.Shared.Next(10000000, 99999999).ToString();
+        }
+
         private async Task DeleteVotesFromVoteService(string pollCode)
         {
             try
             {
-                var httpClient = _httpClientFactory.CreateClient();
-                const string voteServiceUrl = "https://localhost:5002";
-                await httpClient.DeleteAsync($"{voteServiceUrl}/api/Votes?pollCode={pollCode}");
+                var client = _httpClientFactory.CreateClient();
+                await client.DeleteAsync($"http://voteservice/api/Votes?pollCode={pollCode}");
             }
-            catch (Exception exceptionMessage)
+            catch (Exception ex)
             {
-                Console.WriteLine($"Warning: Failed to delete votes for poll {pollCode}: {exceptionMessage.Message}");
+                Console.WriteLine($"Warning: Could not delete votes for poll {pollCode}: {ex.Message}");
             }
         }
-//call api to vote to alert close
 
-        private async Task BroadcastPollClosedToVoteService(string pollCode)
+        private async Task NotifyPollClosed(string pollCode)
         {
             try
             {
-                var httpClient = _httpClientFactory.CreateClient();
-                const string voteServiceUrl = "https://localhost:5002";
-                await httpClient.PostAsJsonAsync(
-                    $"{voteServiceUrl}/api/Votes/broadcast-closed",
+                var client = _httpClientFactory.CreateClient();
+                await client.PostAsJsonAsync(
+                    "http://voteservice/api/Votes/broadcast-closed",
                     new { pollCode = pollCode }
                 );
             }
-            catch (Exception exceptionMessage)
+            catch (Exception ex)
             {
-                Console.WriteLine($"Warning: Failed to broadcast poll closed for {pollCode}: {exceptionMessage.Message}");
+                Console.WriteLine($"Warning: Could not notify poll closed for {pollCode}: {ex.Message}");
             }
         }
     }

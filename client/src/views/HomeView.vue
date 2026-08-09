@@ -14,15 +14,15 @@
       <div class="card">
         <p class="text-[11px] font-bold uppercase tracking-widest text-[--text-4] mb-2">Join Poll</p>
         <h2 class="text-[17px] font-bold mb-1">Enter Room Code</h2>
-        <p class="text-[13.5px] text-[--text-3] mb-5">Get the 6-digit code from poll creator</p>
+        <p class="text-[13.5px] text-[--text-3] mb-5">Get the 8-digit code from poll creator</p>
 
         <form @submit.prevent="joinPoll">
           <input
             v-model="code"
             type="text"
             inputmode="numeric"
-            maxlength="6"
-            placeholder="000000"
+            maxlength="8"
+            placeholder="00000000"
             class="code-input" :class="{ error: codeError }"
             autocomplete="off"
           />
@@ -88,31 +88,40 @@
   </div>
 </template>
 
-<script setup>
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+<script>
 import { AlertCircle, LogIn, Plus, Check, ChevronRight } from '@lucide/vue'
-import { pollApi } from '../api'
+import { getPollByCode } from '../api'
 
-const router = useRouter()
-const code = ref('')
-const codeError = ref('')
-const joinLoading = ref(false)
+export default {
+  name: 'HomeView',
 
-const joinPoll = async () => {
-  if (code.value.length < 6) {
-    codeError.value = 'Please enter all 6 digits'
-    return
-  }
+  components: { AlertCircle, LogIn, Plus, Check, ChevronRight },
 
-  joinLoading.value = true
-  try {
-    await pollApi.checkPoll(code.value)
-    router.push(`/vote/${code.value}`)
-  } catch {
-    codeError.value = 'Poll not found'
-  } finally {
-    joinLoading.value = false
-  }
+  data() {
+    return {
+      code:        '',
+      codeError:   '',
+      joinLoading: false,
+    }
+  },
+
+  methods: {
+    async joinPoll() {
+      if (this.code.length < 8) {
+        this.codeError = 'Please enter all 8 digits'
+        return
+      }
+
+      this.joinLoading = true
+      try {
+        await getPollByCode(this.code)
+        this.$router.push('/vote/' + this.code)
+      } catch {
+        this.codeError = 'Poll not found'
+      } finally {
+        this.joinLoading = false
+      }
+    },
+  },
 }
 </script>

@@ -35,14 +35,7 @@ builder.Services.AddDbContext<PollDbContext>(options =>
 builder.Services.AddHttpClient();
 
 // register controllers service
-builder.Services.AddControllers()
-    // configure json serialization for controller responses
-    .AddNewtonsoftJson(options =>
-    {
-        // set datetime zone handling to always include z for utc times
-        options.SerializerSettings.DateTimeZoneHandling =
-            Newtonsoft.Json.DateTimeZoneHandling.Utc;
-    });
+builder.Services.AddControllers();
 
 // register endpoint explorer for swagger
 builder.Services.AddEndpointsApiExplorer();
@@ -55,8 +48,17 @@ var app = builder.Build();
 // auto-create tables if they don't exist (runs on startup)
 using (var scope = app.Services.CreateScope())
 {
-    var db = scope.ServiceProvider.GetRequiredService<PollDbContext>();
-    db.Database.EnsureCreated();
+    try
+    {
+        var db = scope.ServiceProvider.GetRequiredService<PollDbContext>();
+        db.Database.EnsureCreated();
+    }
+    catch (Exception ex)
+    {
+        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        logger.LogError(ex, "Failed to ensure database created");
+        throw;
+    }
 }
 
 // use cors middleware with allowall policy

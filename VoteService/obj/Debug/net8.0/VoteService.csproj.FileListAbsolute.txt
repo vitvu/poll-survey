@@ -247,3 +247,4 @@ C:\Users\Viet\Documents\GitHub\poll-survey\VoteService\obj\Debug\net8.0\staticwe
 C:\Users\Viet\Documents\GitHub\poll-survey\VoteService\bin\Debug\net8.0\appsettings.Production.json
 C:\Users\Viet\Documents\GitHub\poll-survey\VoteService\bin\Debug\net8.0\MySqlConnector.dll
 C:\Users\Viet\Documents\GitHub\poll-survey\VoteService\bin\Debug\net8.0\Pomelo.EntityFrameworkCore.MySql.dll
+C:\Users\Viet\Documents\GitHub\poll-survey\VoteService\bin\Debug\net8.0\appsettings.Development.json

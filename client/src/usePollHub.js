@@ -1,60 +1,109 @@
-import { ref, onUnmounted } from 'vue'
 import * as signalR from '@microsoft/signalr'
 
 const VOTE_SERVICE_URL = process.env.VUE_APP_VOTE_SERVICE_URL || 'http://localhost:5002'
 
-export function usePollHub(pollCode, onVoteUpdated) {
-  const connected = ref(false)
-  let connection = null
+// Connect to the SignalR hub for a poll room.
+//
+// Usage:
+//   const hub = connectPollHub(pollCode, {
+//     onUpdate(data)    — called when a new vote arrives
+//     onPollClosed()    — called when admin closes the poll
+//     onConnected()     — called when connection is established
+//     onDisconnected()  — called when connection is lost
+//   })
+//   hub.start()
+//   hub.stop()
 
-  const notify = data => {
-    if (data.pollCode === pollCode && typeof onVoteUpdated === 'function') {
-      onVoteUpdated(data)
+export function connectPollHub(pollCode, callbacks) {
+  let connection = null
+  let stopped = false
+
+  async function joinRoom() {
+    if (connection && connection.state === signalR.HubConnectionState.Connected) {
+      await connection.invoke('JoinPollRoom', pollCode).catch(function () {})
     }
   }
 
-  const start = async () => {
+  async function start() {
     if (!pollCode) return
+    stopped = false
 
     connection = new signalR.HubConnectionBuilder()
-      .withUrl(`${VOTE_SERVICE_URL}/hubs/vote`)
+      .withUrl(VOTE_SERVICE_URL + '/hubs/vote')
       .withAutomaticReconnect([0, 1000, 3000, 5000])
       .configureLogging(signalR.LogLevel.Warning)
       .build()
 
-    connection.on('VoteUpdated', notify)
-    connection.on('PollClosed', notify)
-
-    connection.onreconnecting(() => { connected.value = false })
-    connection.onreconnected(() => {
-      connected.value = true
-      connection.invoke('JoinPollRoom', pollCode).catch(() => {})
+    // Server sends this when someone votes
+    connection.on('VoteUpdated', function (data) {
+      if (data.pollCode === pollCode && callbacks.onUpdate) {
+        callbacks.onUpdate(data)
+      }
     })
-    connection.onclose(() => { connected.value = false })
+
+    // Server sends this when admin closes the poll
+    connection.on('PollClosed', function (data) {
+      if (data.pollCode === pollCode && callbacks.onPollClosed) {
+        callbacks.onPollClosed(data)
+      }
+    })
+
+    // Server confirms we joined the room
+    connection.on('UserJoined', function () {
+      if (callbacks.onConnected) {
+        callbacks.onConnected()
+      }
+    })
+
+    // Connection dropped, trying to reconnect
+    connection.onreconnecting(function () {
+      if (callbacks.onDisconnected) {
+        callbacks.onDisconnected()
+      }
+    })
+
+    // Reconnected successfully — rejoin the room
+    connection.onreconnected(async function () {
+      if (!stopped) {
+        await joinRoom()
+        if (callbacks.onConnected) {
+          callbacks.onConnected()
+        }
+      }
+    })
+
+    // Connection fully closed
+    connection.onclose(function () {
+      if (callbacks.onDisconnected) {
+        callbacks.onDisconnected()
+      }
+    })
 
     try {
       await connection.start()
-      await connection.invoke('JoinPollRoom', pollCode)
-      connected.value = true
-    } catch (e) {
-      connected.value = false
+      await joinRoom()
+      if (callbacks.onConnected) {
+        callbacks.onConnected()
+      }
+    } catch (error) {
+      console.error('SignalR failed to connect:', error)
+      if (callbacks.onDisconnected) {
+        callbacks.onDisconnected()
+      }
     }
   }
 
-  const stop = async () => {
-    if (connection) {
-      try {
-        if (connection.state !== signalR.HubConnectionState.Disconnected) {
-          await connection.invoke('LeavePollRoom', pollCode).catch(() => {})
-          await connection.stop()
-        }
-      } catch (_) { /* ignore disconnect errors */ }
-      connection = null
+  async function stop() {
+    stopped = true
+    if (connection && connection.state !== signalR.HubConnectionState.Disconnected) {
+      await connection.invoke('LeavePollRoom', pollCode).catch(function () {})
+      await connection.stop().catch(function () {})
     }
-    connected.value = false
+    connection = null
+    if (callbacks.onDisconnected) {
+      callbacks.onDisconnected()
+    }
   }
 
-  onUnmounted(stop)
-
-  return { connected, start, stop }
+  return { start, stop }
 }
