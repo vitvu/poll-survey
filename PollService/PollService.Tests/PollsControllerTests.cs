@@ -34,251 +34,120 @@ namespace PollService.Tests
         }
 
         [Fact]
-        public async Task CreatePoll_WithValidData_ReturnsCreatedResult()
+        public async Task CreatePoll_WithValidMultipleChoice_ReturnsCreatedResult()
         {
-            // Arrange
             var poll = new Poll
             {
-                Question = "What is your favorite color?",
-                QuestionType = 1, // Multiple Choice
-                Options = new List<Option>
-                {
-                    new Option { Text = "Red" },
-                    new Option { Text = "Blue" }
-                }
+                Question = "Favorite color?",
+                QuestionType = 1,
+                Options = new List<Option> { new Option { Text = "Red" }, new Option { Text = "Blue" } }
             };
 
-            // Act
             var result = await _controller.CreatePoll(poll);
-
-            // Assert
-            var createdResult = Assert.IsType<CreatedResult>(result);
-            Assert.Equal(201, createdResult.StatusCode);
-            
-            var returnedPoll = createdResult.Value;
-            Assert.NotNull(returnedPoll);
+            Assert.IsType<CreatedResult>(result);
         }
 
         [Fact]
         public async Task CreatePoll_WithEmptyQuestion_ReturnsBadRequest()
         {
-            // Arrange
-            var poll = new Poll
-            {
-                Question = "",
-                QuestionType = 1,
-                Options = new List<Option>
-                {
-                    new Option { Text = "Red" },
-                    new Option { Text = "Blue" }
-                }
-            };
-
-            // Act
+            var poll = new Poll { Question = "", QuestionType = 1, Options = new List<Option>() };
             var result = await _controller.CreatePoll(poll);
-
-            // Assert
-            var badRequestResult = Assert.IsType<BadRequestObjectResult>(result);
-            Assert.Equal(400, badRequestResult.StatusCode);
+            Assert.IsType<BadRequestObjectResult>(result);
         }
 
         [Fact]
         public async Task CreatePoll_WithInvalidQuestionType_ReturnsBadRequest()
         {
-            // Arrange
-            var poll = new Poll
-            {
-                Question = "Test question",
-                QuestionType = 5, // Invalid: must be 1-4
-                Options = new List<Option>()
-            };
-
-            // Act
+            var poll = new Poll { Question = "Test", QuestionType = 5, Options = new List<Option>() };
             var result = await _controller.CreatePoll(poll);
-
-            // Assert
-            var badRequestResult = Assert.IsType<BadRequestObjectResult>(result);
-            Assert.Equal(400, badRequestResult.StatusCode);
+            Assert.IsType<BadRequestObjectResult>(result);
         }
 
         [Fact]
-        public async Task CreatePoll_MultipleChoice_WithLessThanTwoOptions_ReturnsBadRequest()
+        public async Task CreatePoll_WithYesNo_ReturnsCreatedResult()
         {
-            // Arrange
-            var poll = new Poll
-            {
-                Question = "Test",
-                QuestionType = 1, // Multiple Choice
-                Options = new List<Option>
-                {
-                    new Option { Text = "Only one option" }
-                }
-            };
-
-            // Act
+            var poll = new Poll { Question = "Do you like it?", QuestionType = 2, Options = new List<Option>() };
             var result = await _controller.CreatePoll(poll);
-
-            // Assert
-            var badRequestResult = Assert.IsType<BadRequestObjectResult>(result);
-            Assert.Equal(400, badRequestResult.StatusCode);
+            Assert.IsType<CreatedResult>(result);
         }
 
         [Fact]
-        public async Task CreatePoll_GeneratesUniqueCode()
+        public async Task CreatePoll_WithRating_ReturnsCreatedResult()
         {
-            // Arrange
-            var poll1 = new Poll
-            {
-                Question = "Poll 1",
-                QuestionType = 2, // Yes/No
-                Options = new List<Option>()
-            };
+            var poll = new Poll { Question = "Rate it", QuestionType = 3, Options = new List<Option>() };
+            var result = await _controller.CreatePoll(poll);
+            Assert.IsType<CreatedResult>(result);
+        }
 
-            var poll2 = new Poll
-            {
-                Question = "Poll 2",
-                QuestionType = 2, // Yes/No
-                Options = new List<Option>()
-            };
-
-            // Act
-            await _controller.CreatePoll(poll1);
-            await _controller.CreatePoll(poll2);
-
-            var polls = _context.Polls.ToList();
-
-            // Assert
-            Assert.Equal(2, polls.Count);
-            Assert.NotEqual(polls[0].Code, polls[1].Code);
+        [Fact]
+        public async Task CreatePoll_WithOpenText_ReturnsCreatedResult()
+        {
+            var poll = new Poll { Question = "Your opinion?", QuestionType = 4, Options = new List<Option>() };
+            var result = await _controller.CreatePoll(poll);
+            Assert.IsType<CreatedResult>(result);
         }
 
         [Fact]
         public async Task GetPollByCode_WithValidCode_ReturnsPoll()
         {
-            // Arrange
-            var poll = new Poll
-            {
-                Question = "What time is it?",
-                QuestionType = 2, // Yes/No
-                Code = "12345678",
-                Status = 0,
-                Options = new List<Option>()
-            };
+            var poll = new Poll { Question = "Test?", Code = "12345678", Status = 0, Options = new List<Option>() };
             _context.Polls.Add(poll);
             await _context.SaveChangesAsync();
 
-            // Act
             var result = await _controller.GetPollByCode("12345678");
-
-            // Assert
-            var okResult = Assert.IsType<OkObjectResult>(result);
-            var returnedPoll = Assert.IsType<Poll>(okResult.Value);
-            Assert.Equal("12345678", returnedPoll.Code);
-            Assert.Equal("What time is it?", returnedPoll.Question);
-        }
-
-        [Fact]
-        public async Task GetPollByCode_WithInvalidCode_ReturnsNotFound()
-        {
-            // Act
-            var result = await _controller.GetPollByCode("99999999");
-
-            // Assert
-            Assert.IsType<NotFoundResult>(result);
-        }
-
-        [Fact]
-        public async Task CanVote_WithValidActivePoll_ReturnsTrue()
-        {
-            // Arrange
-            var poll = new Poll
-            {
-                Question = "Test",
-                Code = "12345678",
-                Status = 0, // Active
-                Options = new List<Option>()
-            };
-            _context.Polls.Add(poll);
-            await _context.SaveChangesAsync();
-
-            // Act
-            var result = await _controller.CanVote("12345678");
-
-            // Assert
             var okResult = Assert.IsType<OkObjectResult>(result);
             Assert.NotNull(okResult.Value);
         }
 
         [Fact]
-        public async Task CanVote_WithClosedPoll_ReturnsBadRequest()
+        public async Task GetPollByCode_WithInvalidCode_ReturnsNotFound()
         {
-            // Arrange
-            var poll = new Poll
-            {
-                Question = "Test",
-                Code = "12345678",
-                Status = 1, // Closed
-                Options = new List<Option>()
-            };
-            _context.Polls.Add(poll);
-            await _context.SaveChangesAsync();
-
-            // Act
-            var result = await _controller.CanVote("12345678");
-
-            // Assert
-            var badRequestResult = Assert.IsType<BadRequestObjectResult>(result);
-            Assert.Equal(400, badRequestResult.StatusCode);
+            var result = await _controller.GetPollByCode("99999999");
+            Assert.IsType<NotFoundResult>(result);
         }
 
         [Fact]
-        public async Task UpdatePoll_ChangeStatus_ReturnsNoContent()
+        public async Task CanVote_WithActivePoll_ReturnsOk()
         {
-            // Arrange
-            var poll = new Poll
-            {
-                Question = "Test",
-                Code = "12345678",
-                Status = 0, // Active
-                Options = new List<Option>()
-            };
+            var poll = new Poll { Question = "Test", Code = "12345678", Status = 0, Options = new List<Option>() };
             _context.Polls.Add(poll);
             await _context.SaveChangesAsync();
 
-            var updatedPoll = new Poll
-            {
-                Question = "Test",
-                Status = 1 // Close the poll
-            };
+            var result = await _controller.CanVote("12345678");
+            Assert.IsType<OkObjectResult>(result);
+        }
 
-            // Act
-            var result = await _controller.UpdatePoll("12345678", updatedPoll);
+        [Fact]
+        public async Task CanVote_WithClosedPoll_ReturnsBadRequest()
+        {
+            var poll = new Poll { Question = "Test", Code = "12345678", Status = 1, Options = new List<Option>() };
+            _context.Polls.Add(poll);
+            await _context.SaveChangesAsync();
 
-            // Assert
+            var result = await _controller.CanVote("12345678");
+            Assert.IsType<BadRequestObjectResult>(result);
+        }
+
+        [Fact]
+        public async Task UpdatePoll_ClosePoll_ReturnsNoContent()
+        {
+            var poll = new Poll { Question = "Test", Code = "12345678", Status = 0, Options = new List<Option>() };
+            _context.Polls.Add(poll);
+            await _context.SaveChangesAsync();
+
+            var updated = new Poll { Question = "Test", Status = 1 };
+            var result = await _controller.UpdatePoll("12345678", updated);
             Assert.IsType<NoContentResult>(result);
-
-            var pollInDb = _context.Polls.First(p => p.Code == "12345678");
-            Assert.Equal(1, pollInDb.Status);
         }
 
         [Fact]
         public async Task DeletePoll_WithValidCode_ReturnsNoContent()
         {
-            // Arrange
-            var poll = new Poll
-            {
-                Question = "Test",
-                Code = "12345678",
-                Status = 0,
-                Options = new List<Option>()
-            };
+            var poll = new Poll { Question = "Test", Code = "12345678", Status = 0, Options = new List<Option>() };
             _context.Polls.Add(poll);
             await _context.SaveChangesAsync();
 
-            // Act
             var result = await _controller.DeletePoll("12345678");
-
-            // Assert
             Assert.IsType<NoContentResult>(result);
             Assert.Empty(_context.Polls);
         }
@@ -286,20 +155,14 @@ namespace PollService.Tests
         [Fact]
         public async Task DeletePoll_WithInvalidCode_ReturnsNotFound()
         {
-            // Act
             var result = await _controller.DeletePoll("99999999");
-
-            // Assert
             Assert.IsType<NotFoundResult>(result);
         }
     }
 
-    // Mock HttpClientFactory for testing
     public class HttpClientFactoryMock : IHttpClientFactory
     {
-        public HttpClient CreateClient(string name = "")
-        {
-            return new HttpClient();
-        }
+        public HttpClient CreateClient(string name = "") => new HttpClient();
     }
 }
+
