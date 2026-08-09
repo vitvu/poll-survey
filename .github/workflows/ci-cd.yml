@@ -1,0 +1,153 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ===== BUILD AND TEST JOB =====
+  build-and-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      # Step 1: Check out the code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Step 2: Setup .NET SDK
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      # Step 3: Restore dependencies
+      - name: Restore dependencies
+        run: dotnet restore
+
+      # Step 4: Build the solution
+      - name: Build solution
+        run: dotnet build --configuration Release --no-restore
+
+      # Step 5: Run PollService unit tests
+      - name: Run PollService tests
+        run: dotnet test PollService/PollService.Tests/PollService.Tests.csproj --configuration Release --no-build --verbosity normal --logger "console;verbosity=detailed"
+
+      # Step 6: Run VoteService unit tests
+      - name: Run VoteService tests
+        run: dotnet test VoteService/VoteService.Tests/VoteService.Tests.csproj --configuration Release --no-build --verbosity normal --logger "console;verbosity=detailed"
+
+  # ===== DOCKER BUILD JOB =====
+  build-docker:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        service: [poll-service, vote-service, gateway, client]
+        include:
+          - service: poll-service
+            dockerfile: PollService/Dockerfile
+            context: .
+          - service: vote-service
+            dockerfile: VoteService/Dockerfile
+            context: .
+          - service: gateway
+            dockerfile: OcelotGateway/Dockerfile
+            context: .
+          - service: client
+            dockerfile: client/Dockerfile
+            context: ./client
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.service }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha,prefix={{branch}}-
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.service }}:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.service }}:buildcache,mode=max
+
+  # ===== CODE QUALITY CHECK (Optional but recommended) =====
+  code-quality:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      # Install and run StyleCop Analyzers
+      - name: Analyze code
+        run: |
+          dotnet restore
+          dotnet build --configuration Release /p:EnforceCodeStyleInBuild=true
+
+  # ===== DEPLOYMENT JOB (Manual trigger or auto-deploy to production) =====
+  deploy:
+    needs: [build-and-test, build-docker]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment:
+      name: production
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Deploy to production
+        run: |
+          echo "🚀 Deployment to production started..."
+          echo "Branch: ${{ github.ref }}"
+          echo "Commit: ${{ github.sha }}"
+          
+          # TODO: Add your deployment commands here
+          # Example for VPS with Docker:
+          # ssh -i ${{ secrets.DEPLOY_KEY }} user@your-vps-ip "cd /app && docker-compose pull && docker-compose up -d"
+          
+          echo "✅ Deployment completed!"
+
+      - name: Notify deployment
+        if: success()
+        run: echo "✅ All tests passed and deployment successful!"

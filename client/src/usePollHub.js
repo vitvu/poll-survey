@@ -2,17 +2,6 @@ import * as signalR from '@microsoft/signalr'
 
 const VOTE_SERVICE_URL = process.env.VUE_APP_VOTE_SERVICE_URL || 'http://localhost:5002'
 
-// Connect to the SignalR hub for a poll room.
-//
-// Usage:
-//   const hub = connectPollHub(pollCode, {
-//     onUpdate(data)    — called when a new vote arrives
-//     onPollClosed()    — called when admin closes the poll
-//     onConnected()     — called when connection is established
-//     onDisconnected()  — called when connection is lost
-//   })
-//   hub.start()
-//   hub.stop()
 
 export function connectPollHub(pollCode, callbacks) {
   let connection = null
