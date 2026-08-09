@@ -1,7 +1,7 @@
 import { createApp } from 'vue'
 import App from './App.vue'
 import router from './router'
-import Toast from 'vue-toastification'
+import Toast, { useToast } from 'vue-toastification'
 import 'vue-toastification/dist/index.css'
 import './assets/main.css'
 
@@ -18,5 +18,8 @@ app.use(Toast, {
   hideProgressBar: true,
   closeButton: false,
 })
+
+// make $toast available in all components via Options API (this.$toast)
+app.config.globalProperties.$toast = useToast()
 
 app.mount('#app')
