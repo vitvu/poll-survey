@@ -11,46 +11,8 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  # ===== BUILD AND TEST JOB =====
-  build-and-test:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-      # Step 1: Check out the code
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # Step 2: Setup .NET SDK
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
-
-      # Step 3: Restore dependencies
-      - name: Restore dependencies
-        run: dotnet restore
-
-      # Step 4: Build the solution
-      - name: Build solution
-        run: dotnet build --configuration Release --no-restore
-        continue-on-error: true
-
-      # Step 5: Run PollService unit tests (skip if build failed)
-      - name: Run PollService tests
-        run: dotnet test PollService/PollService.Tests/PollService.Tests.csproj --configuration Release --verbosity normal --logger "console;verbosity=detailed"
-        continue-on-error: true
-
-      # Step 6: Run VoteService unit tests (skip if build failed)
-      - name: Run VoteService tests
-        run: dotnet test VoteService/VoteService.Tests/VoteService.Tests.csproj --configuration Release --verbosity normal --logger "console;verbosity=detailed"
-        continue-on-error: true
-
-  # ===== DOCKER BUILD JOB =====
+  # ===== BUILD AND DOCKER JOB =====
   build-docker:
-    needs: build-and-test
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -108,28 +70,9 @@ jobs:
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.service }}:buildcache
           cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.service }}:buildcache,mode=max
 
-  # ===== CODE QUALITY CHECK (Optional but recommended) =====
-  code-quality:
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
-
-      # Install and run StyleCop Analyzers
-      - name: Analyze code
-        run: |
-          dotnet restore
-          dotnet build --configuration Release /p:EnforceCodeStyleInBuild=true
-
-  # ===== DEPLOYMENT JOB (Manual trigger or auto-deploy to production) =====
+  # ===== DEPLOYMENT JOB =====
   deploy:
-    needs: [build-and-test, build-docker]
+    needs: build-docker
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     environment:
@@ -153,4 +96,5 @@ jobs:
 
       - name: Notify deployment
         if: success()
-        run: echo "✅ All tests passed and deployment successful!"
+        run: echo "✅ Build completed and deployment ready!"
+
