@@ -352,7 +352,7 @@ Open Swagger at **http://localhost:5001/swagger** and try:
     "code": "12345678",
     "question": "What's your favorite language?",
     "questionType": 1,
-    "status": 0,
+    "status": 1,
     "options": [
       { "id": 1, "pollId": 1, "text": "JavaScript" },
       { "id": 2, "pollId": 1, "text": "Python" },

@@ -1,6 +1,6 @@
 {
   "GlobalConfiguration": {
-    "BaseUrl": "https://127.0.0.1:5000"
+    "BaseUrl": "https://localhost:5000"
   },
   "Routes": [
     {
@@ -8,35 +8,35 @@
       "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
       "DownstreamPathTemplate": "/api/Polls/{everything}",
       "DownstreamScheme": "https",
-      "DownstreamHostAndPorts": [ { "Host": "127.0.0.1", "Port": 5001 } ]
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5001 } ]
     },
     {
       "UpstreamPathTemplate": "/api/polls",
       "UpstreamHttpMethod": [ "GET", "POST" ],
       "DownstreamPathTemplate": "/api/Polls",
       "DownstreamScheme": "https",
-      "DownstreamHostAndPorts": [ { "Host": "127.0.0.1", "Port": 5001 } ]
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5001 } ]
     },
     {
       "UpstreamPathTemplate": "/api/votes/{everything}",
       "UpstreamHttpMethod": [ "GET", "POST", "DELETE" ],
       "DownstreamPathTemplate": "/api/Votes/{everything}",
       "DownstreamScheme": "https",
-      "DownstreamHostAndPorts": [ { "Host": "127.0.0.1", "Port": 5002 } ]
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5002 } ]
     },
     {
       "UpstreamPathTemplate": "/api/votes",
       "UpstreamHttpMethod": [ "GET", "POST", "DELETE" ],
       "DownstreamPathTemplate": "/api/Votes",
       "DownstreamScheme": "https",
-      "DownstreamHostAndPorts": [ { "Host": "127.0.0.1", "Port": 5002 } ]
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5002 } ]
     },
     {
       "UpstreamPathTemplate": "/hubs/vote",
       "UpstreamHttpMethod": [ "GET", "POST", "OPTIONS" ],
       "DownstreamPathTemplate": "/hubs/vote",
       "DownstreamScheme": "https",
-      "DownstreamHostAndPorts": [ { "Host": "127.0.0.1", "Port": 5002 } ]
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5002 } ]
     }
   ]
 }

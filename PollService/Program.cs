@@ -3,75 +3,31 @@ using PollService.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// đọc danh sách origin được phép từ config (hỗ trợ cả local và cloud)
-var allowedOrigins = builder.Configuration
-    .GetSection("AllowedOrigins")
-    .Get<string[]>() ?? new[] { "http://localhost:8080", "http://localhost:5173" };
-
-// configure cors policy to allow frontend requests
 builder.Services.AddCors(options =>
 {
-    // add a policy named allowall
-    options.AddPolicy("AllowAll", policy =>
+    options.AddPolicy("AllowAll", p =>
     {
-        // allow requests from configured origins
-        policy.WithOrigins(allowedOrigins)
-              // accept any headers in request
-              .AllowAnyHeader()
-              // accept any http methods (get, post, etc)
-              .AllowAnyMethod();
+        p.WithOrigins("http://localhost:8080", "http://localhost:8081")
+         .AllowAnyHeader()
+         .AllowAnyMethod();
     });
 });
 
-// register polldbcontext with mysql database
 builder.Services.AddDbContext<PollDbContext>(options =>
-    // configure to use mysql with connection string from config/env
     options.UseMySql(
         builder.Configuration.GetConnectionString("DefaultConnection"),
-        ServerVersion.AutoDetect(builder.Configuration.GetConnectionString("DefaultConnection"))
-    ));
-
-// register http client factory for inter-service calls
+        new MySqlServerVersion(new Version(8, 0, 0))));
 builder.Services.AddHttpClient();
-
-// register controllers service
 builder.Services.AddControllers();
-
-// register endpoint explorer for swagger
 builder.Services.AddEndpointsApiExplorer();
-// register swagger generator
 builder.Services.AddSwaggerGen();
 
-// build the app
 var app = builder.Build();
 
-// auto-create tables if they don't exist (runs on startup)
-using (var scope = app.Services.CreateScope())
-{
-    try
-    {
-        var db = scope.ServiceProvider.GetRequiredService<PollDbContext>();
-        db.Database.EnsureCreated();
-    }
-    catch (Exception ex)
-    {
-        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-        logger.LogError(ex, "Failed to ensure database created");
-        throw;
-    }
-}
-
-// use cors middleware with allowall policy
 app.UseCors("AllowAll");
-
-// enable swagger ui for all environments (also used as health check endpoint)
 app.UseSwagger();
 app.UseSwaggerUI();
-
-// enable authorization middleware
 app.UseAuthorization();
-// map controller endpoints
 app.MapControllers();
 
-// start the application
 app.Run();

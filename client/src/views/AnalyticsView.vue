@@ -221,7 +221,7 @@ export default {
     questionTypeLabel(){ return QUESTION_TYPE_LABELS[this.poll?.questionType] ?? '' },
     pollIsClosed() {
       if (!this.poll) return true
-      if (this.poll.status !== 0) return true
+      if (this.poll.status !== 1) return true
       return false
     },
   },
@@ -229,15 +229,16 @@ export default {
   async created() {
     if (!this.pollCode) return
 
-    const createdPolls = JSON.parse(localStorage.getItem('createdPolls') || '[]')
-    if (!createdPolls.includes(this.pollCode)) {
-      this.accessDenied = true
-      return
-    }
-
     try {
-      const { data } = await getPollByCode(this.pollCode)
-      this.poll = data
+      const pollData = await getPollByCode(this.pollCode)
+      this.poll = pollData
+      
+      const createdPolls = JSON.parse(localStorage.getItem('createdPolls') || '[]')
+      if (!createdPolls.includes(this.pollCode)) {
+        createdPolls.push(this.pollCode)
+        localStorage.setItem('createdPolls', JSON.stringify(createdPolls))
+      }
+
       await this.loadResults()
 
       if (!this.pollIsClosed) {
@@ -260,37 +261,75 @@ export default {
   methods: {
     async loadResults() {
       if (!this.poll) return
-      const { data } = await getVoteData(this.pollCode)
-      const { total, summary, votes } = data
-      this.totalVotes = total
-      const type = this.poll.questionType
+      
+      try {
+        const response = await getVoteData(this.pollCode)
+        const { total, votes } = response
+        this.totalVotes = total
+        const type = this.poll.questionType
 
-      if (type === 1) {
-        // Multiple Choice: match each summary item to its option label
-        this.choiceResults = []
-        for (const item of summary) {
-          const option = this.poll.options.find(o => o.id === item.optionId)
-          this.choiceResults.push({ label: option ? option.text : '(unknown)', count: item.count })
-        }
+        if (type === 1) {
+          // Multiple Choice - tính summary từ votes
+          this.choiceResults = []
+          const countByOption = {}
+          
+          // Duyệt qua từng vote, đếm số lần mỗi option được chọn
+          for (const vote of votes) {
+            const optionId = vote.optionId
+            if (optionId) {
+              if (!countByOption[optionId]) {
+                countByOption[optionId] = 0
+              }
+              countByOption[optionId]++
+            }
+          }
+          
+          // Tạo kết quả với tên option
+          if (this.poll.options && Array.isArray(this.poll.options)) {
+            for (const optionId in countByOption) {
+              const count = countByOption[optionId]
+              const option = this.poll.options.find(o => o.id === Number(optionId))
+              const label = option ? option.text : '(unknown)'
+              this.choiceResults.push({ label, count })
+            }
+          }
 
-      } else if (type === 2) {
-        // Yes / No: convert '1'/'0' to readable label
-        this.choiceResults = []
-        for (const item of summary) {
-          this.choiceResults.push({ label: YES_NO_LABELS[item.voteValue] ?? item.voteValue, count: item.count })
-        }
+        } else if (type === 2) {
+          // Yes / No - tính summary từ votes
+          this.choiceResults = []
+          const countByVote = {}
+          
+          // Duyệt qua từng vote, đếm số lần Yes/No
+          for (const vote of votes) {
+            const answer = vote.voteValue ?? ''
+            if (!countByVote[answer]) {
+              countByVote[answer] = 0
+            }
+            countByVote[answer]++
+          }
+          
+          // Tạo kết quả
+          for (const answer in countByVote) {
+            const count = countByVote[answer]
+            const label = YES_NO_LABELS[answer] ?? answer
+            this.choiceResults.push({ label, count })
+          }
 
-      } else if (type === 3) {
-        this.ratingResponses = votes
+        } else if (type === 3) {
+          // Rating - hiển thị từng rating
+          this.ratingResponses = votes || []
 
-      } else if (type === 4) {
-        // Open Text: collect non-empty responses
-        this.textResponses = []
-        for (const vote of votes) {
-          if (vote.voteValue && vote.voteValue.trim()) {
-            this.textResponses.push(vote.voteValue)
+        } else if (type === 4) {
+          // Open Text - lấy text responses
+          this.textResponses = []
+          for (const vote of votes) {
+            if (vote.voteValue && vote.voteValue.trim()) {
+              this.textResponses.push(vote.voteValue)
+            }
           }
         }
+      } catch (error) {
+        this.$toast.error('Failed to load results.')
       }
     },
 
@@ -315,7 +354,7 @@ export default {
           await this.loadResults()
         },
         onPollClosed: () => {
-          this.poll.status = 1
+          this.poll.status = 0
           clearInterval(this.fallbackTimer)
           this.fallbackTimer = null
           hub.stop()
@@ -331,8 +370,11 @@ export default {
     async stopPoll() {
       this.confirmStop = false
       try {
-        await updatePoll(this.pollCode, { ...this.poll, status: 1 })
-        this.poll.status = 1
+        if (!this.poll) return
+        await updatePoll(this.pollCode, { ...this.poll, status: 0 })
+        if (this.poll) {
+          this.poll.status = 0
+        }
         clearInterval(this.fallbackTimer)
         this.fallbackTimer = null
         if (this.hubStop) this.hubStop()

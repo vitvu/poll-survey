@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
@@ -16,22 +15,21 @@ namespace VoteService.Controllers
     {
         private readonly VoteDbContext _context;
         private readonly IHttpClientFactory _httpClientFactory;
-        private readonly IConfiguration _configuration;
         private readonly IHubContext<VoteHub> _hubContext;
+        private readonly IConfiguration _config;
 
         public VotesController(
             VoteDbContext context,
             IHttpClientFactory httpClientFactory,
-            IConfiguration configuration,
-            IHubContext<VoteHub> hubContext)
+            IHubContext<VoteHub> hubContext,
+            IConfiguration config)
         {
             _context = context;
             _httpClientFactory = httpClientFactory;
-            _configuration = configuration;
             _hubContext = hubContext;
+            _config = config;
         }
 
-        // POST: api/Votes
         [HttpPost]
         public async Task<IActionResult> SubmitVote([FromBody] Vote vote)
         {
@@ -47,21 +45,19 @@ namespace VoteService.Controllers
 
             if (vote.OptionId <= 0 && string.IsNullOrWhiteSpace(vote.VoteValue))
             {
-                return BadRequest(new { message = "Vote must have either optionId or voteValue." });
+                return BadRequest(new { message = "Please select an option or enter your answer." });
             }
 
-            // Check if voter already voted
-            bool alreadyVoted = await _context.Votes.AnyAsync(
-                v => v.PollCode == vote.PollCode && v.VoterToken == vote.VoterToken
+            bool hasVoterAlreadyVoted = await _context.Votes.AnyAsync(
+                existingVote => existingVote.PollCode == vote.PollCode && existingVote.VoterToken == vote.VoterToken
             );
 
-            if (alreadyVoted)
+            if (hasVoterAlreadyVoted)
             {
                 return BadRequest(new { message = "You have already voted." });
             }
 
-            // Check if poll is still active via PollService
-            var pollServiceUrl = _configuration["Services:PollServiceUrl"] ?? "http://pollservice";
+            var pollServiceUrl = _config["PollServiceUrl"] ?? "http://poll-service";
             var httpClient = _httpClientFactory.CreateClient();
             var response = await httpClient.GetAsync($"{pollServiceUrl}/api/Polls/can-vote/{vote.PollCode}");
 
@@ -78,67 +74,53 @@ namespace VoteService.Controllers
             return Ok(new { message = "Vote submitted successfully." });
         }
 
-        // GET: api/Votes/12345678
         [HttpGet("{pollCode}")]
         public async Task<IActionResult> GetVoteData(string pollCode)
         {
-            var votes = await _context.Votes
+            var allVotes = await _context.Votes
                 .Where(vote => vote.PollCode == pollCode)
                 .ToListAsync();
 
-            var summary = votes
-                .GroupBy(vote => vote.OptionId == 0 ? $"value_{vote.VoteValue}" : $"option_{vote.OptionId}")
-                .Select(group => new
+            var voteDetailsList = new List<Dictionary<string, object>>();
+            foreach (var vote in allVotes)
+            {
+                var voteDetail = new Dictionary<string, object>
                 {
-                    optionId = group.First().OptionId,
-                    voteValue = group.First().VoteValue,
-                    count = group.Count()
-                })
-                .ToList();
-
-            var voteDetails = votes
-                .Select(vote => new
-                {
-                    optionId = vote.OptionId,
-                    voteValue = vote.VoteValue
-                })
-                .ToList();
+                    { "optionId", vote.OptionId },
+                    { "voteValue", vote.VoteValue }
+                };
+                voteDetailsList.Add(voteDetail);
+            }
 
             return Ok(new
             {
                 pollCode = pollCode,
-                total = votes.Count,
-                summary = summary,
-                votes = voteDetails
+                total = allVotes.Count,
+                votes = voteDetailsList
             });
         }
 
-        // DELETE: api/Votes?pollCode=12345678
         [HttpDelete]
         public async Task<IActionResult> DeleteVotes([FromQuery] string pollCode)
         {
             if (string.IsNullOrWhiteSpace(pollCode))
             {
-                return BadRequest(new { message = "pollCode is required." });
+                return BadRequest();
             }
 
-            var votes = await _context.Votes
+            await _context.Votes
                 .Where(vote => vote.PollCode == pollCode)
-                .ToListAsync();
-
-            _context.Votes.RemoveRange(votes);
-            await _context.SaveChangesAsync();
+                .ExecuteDeleteAsync();
 
             return NoContent();
         }
 
-        // POST: api/Votes/broadcast-closed
         [HttpPost("broadcast-closed")]
         public async Task<IActionResult> BroadcastPollClosed([FromBody] PollClosedRequest request)
         {
             if (request == null || string.IsNullOrWhiteSpace(request.PollCode))
             {
-                return BadRequest(new { message = "PollCode is required." });
+                return BadRequest();
             }
 
             string groupName = $"poll_{request.PollCode}";
@@ -152,29 +134,53 @@ namespace VoteService.Controllers
 
         private async Task BroadcastVoteResults(string pollCode)
         {
-            var votes = await _context.Votes
+            var allVotes = await _context.Votes
                 .Where(vote => vote.PollCode == pollCode)
                 .ToListAsync();
 
-            var voteResults = votes
-                .GroupBy(vote => vote.OptionId == 0 ? $"value_{vote.VoteValue}" : $"option_{vote.OptionId}")
-                .Select(group => new
-                {
-                    optionId = group.First().OptionId,
-                    voteValue = group.First().VoteValue,
-                    voteCount = group.Count()
-                })
-                .ToList();
+            var voteResultsList = new List<Dictionary<string, object>>();
 
-            string groupName = $"poll_{pollCode}";
+            foreach (var vote in allVotes)
+            {
+                // Tìm xem optionId này đã có trong danh sách kết quả chưa
+                Dictionary<string, object> found = null;
+                foreach (var result in voteResultsList)
+                {
+                    int optionId = (int)result["optionId"];
+                    if (optionId == vote.OptionId)
+                    {
+                        found = result;
+                        break;
+                    }
+                }
+
+                // Nếu đã có, tăng voteCount
+                if (found != null)
+                {
+                    int voteCount = (int)found["voteCount"];
+                    found["voteCount"] = voteCount + 1;
+                }
+                // Nếu chưa có, thêm mới vào danh sách
+                else
+                {
+                    var newResult = new Dictionary<string, object>
+                    {
+                        { "optionId", vote.OptionId },
+                        { "voteCount", 1 }
+                    };
+                    voteResultsList.Add(newResult);
+                }
+            }
+
+            string hubGroupName = $"poll_{pollCode}";
 
             await _hubContext.Clients
-                .Group(groupName)
+                .Group(hubGroupName)
                 .SendAsync("VoteUpdated", new
                 {
                     pollCode = pollCode,
-                    totalVotes = votes.Count,
-                    voteResults = voteResults
+                    totalVotes = allVotes.Count,
+                    voteResults = voteResultsList
                 });
         }
     }

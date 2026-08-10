@@ -157,7 +157,7 @@ export default {
     questionTypeLabel(){ return QUESTION_TYPE_LABELS[this.poll?.questionType] ?? '' },
     pollIsClosed() {
       if (!this.poll) return true
-      if (this.poll.status !== 0) return true
+      if (this.poll.status !== 1) return true
       return false
     },
   },
@@ -171,8 +171,8 @@ export default {
   methods: {
     async loadPoll() {
       try {
-        const { data } = await getPollByCode(this.pollCode)
-        this.poll = data
+        const pollData = await getPollByCode(this.pollCode)
+        this.poll = pollData
         if (localStorage.getItem(`voted_${this.pollCode}`) === 'true') {
           this.alreadyVoted = true
         }
@@ -184,7 +184,9 @@ export default {
     startHub() {
       const hub = connectPollHub(this.pollCode, {
         onPollClosed: () => {
-          this.poll.status = 1
+          if (this.poll) {
+            this.poll.status = 0
+          }
           if (!this.voteSubmitted && !this.alreadyVoted) {
             this.$toast.warning('This poll has ended.')
           }
@@ -222,7 +224,7 @@ export default {
           this.alreadyVoted = true
           this.$toast.info('You have already voted in this poll.')
         } else if (message.includes('closed')) {
-          this.poll.status = 1
+          this.poll.status = 0
           this.$toast.error('This poll has ended.')
         } else {
           this.hasError = true

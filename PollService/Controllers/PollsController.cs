@@ -13,11 +13,13 @@ namespace PollService.Controllers
     {
         private readonly PollDbContext _context;
         private readonly IHttpClientFactory _httpClientFactory;
+        private readonly IConfiguration _config;
 
-        public PollsController(PollDbContext context, IHttpClientFactory httpClientFactory)
+        public PollsController(PollDbContext context, IHttpClientFactory httpClientFactory, IConfiguration config)
         {
             _context = context;
             _httpClientFactory = httpClientFactory;
+            _config = config;
         }
 
         // GET: api/Polls/code/12345678
@@ -47,7 +49,7 @@ namespace PollService.Controllers
                 return NotFound(new { message = "Poll does not exist." });
             }
 
-            if (poll.Status == 1)
+            if (poll.Status == 0)
             {
                 return BadRequest(new { message = "Poll is closed." });
             }
@@ -55,7 +57,6 @@ namespace PollService.Controllers
             return Ok(new { canVote = true });
         }
 
-        // POST: api/Polls
         [HttpPost]
         public async Task<IActionResult> CreatePoll([FromBody] Poll poll)
         {
@@ -66,7 +67,7 @@ namespace PollService.Controllers
 
             if (poll.QuestionType < 1 || poll.QuestionType > 4)
             {
-                return BadRequest(new { message = "Invalid question type. Must be 1 to 4." });
+                return BadRequest(new { message = "Invalid question type." });
             }
 
             if (poll.QuestionType == 1 && (poll.Options == null || poll.Options.Count < 2))
@@ -76,11 +77,11 @@ namespace PollService.Controllers
 
             if (poll.QuestionType != 1)
             {
-                poll.Options = new List<Option>();
+                poll.Options = null;
             }
 
             poll.Code = GeneratePollCode();
-            poll.Status = 0;
+            poll.Status = 1;
 
             _context.Polls.Add(poll);
             await _context.SaveChangesAsync();
@@ -106,7 +107,7 @@ namespace PollService.Controllers
 
             await _context.SaveChangesAsync();
 
-            if (statusChanged && pollData.Status == 1)
+            if (statusChanged && pollData.Status == 0)
             {
                 await NotifyPollClosed(code);
             }
@@ -144,29 +145,25 @@ namespace PollService.Controllers
         {
             try
             {
+                var voteServiceUrl = _config["VoteServiceUrl"] ?? "http://vote-service";
                 var client = _httpClientFactory.CreateClient();
-                await client.DeleteAsync($"http://voteservice/api/Votes?pollCode={pollCode}");
+                await client.DeleteAsync($"{voteServiceUrl}/api/Votes?pollCode={pollCode}");
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Warning: Could not delete votes for poll {pollCode}: {ex.Message}");
-            }
+            catch { }
         }
 
         private async Task NotifyPollClosed(string pollCode)
         {
             try
             {
+                var voteServiceUrl = _config["VoteServiceUrl"] ?? "http://vote-service";
                 var client = _httpClientFactory.CreateClient();
                 await client.PostAsJsonAsync(
-                    "http://voteservice/api/Votes/broadcast-closed",
+                    $"{voteServiceUrl}/api/Votes/broadcast-closed",
                     new { pollCode = pollCode }
                 );
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Warning: Could not notify poll closed for {pollCode}: {ex.Message}");
-            }
+            catch { }
         }
     }
 }

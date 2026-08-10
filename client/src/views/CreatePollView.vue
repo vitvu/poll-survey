@@ -160,8 +160,13 @@ export default {
           options,
         }
 
-        const { data } = await createPoll(payload)
-        const createdPoll = data.poll || data
+        const response = await createPoll(payload)
+        // Backend returns the poll object directly, wrapped in { poll } or as the root response
+        const createdPoll = response?.poll || response || {}
+        
+        if (!createdPoll.code) {
+          throw new Error('Invalid poll response from server')
+        }
 
         // Remember this poll code so the creator can access analytics
         const saved = JSON.parse(localStorage.getItem('createdPolls') || '[]')
