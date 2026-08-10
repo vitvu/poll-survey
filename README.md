@@ -650,7 +650,7 @@ Located: `.github/workflows/ci-cd.yml`
 - Tests must pass before deployment
 
 **View results:**
-1. Go to https://github.com/YOUR-USERNAME/poll-survey
+1. Go to https://github.com/vitvu/poll-survey
 2. Click **"Actions"** tab
 3. View workflow runs and their status
 
@@ -719,7 +719,5 @@ Located: `.github/workflows/ci-cd.yml`
 - **Docker Compose** — Tool for multi-container applications
 
 ---
-
-**⭐ If you find this project helpful, please give it a star!**
 
 **🌐 Live Demo:** [https://poll.vit.io.vn](https://poll.vit.io.vn)
