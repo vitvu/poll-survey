@@ -4,6 +4,13 @@
   },
   "Routes": [
     {
+      "UpstreamPathTemplate": "/",
+      "UpstreamHttpMethod": [ "GET", "HEAD" ],
+      "DownstreamPathTemplate": "/",
+      "DownstreamScheme": "https",
+      "DownstreamHostAndPorts": [ { "Host": "poll-service-ed6g.onrender.com", "Port": 443 } ]
+    },
+    {
       "UpstreamPathTemplate": "/api/polls/{everything}",
       "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
       "DownstreamPathTemplate": "/api/Polls/{everything}",

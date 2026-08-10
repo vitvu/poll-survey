@@ -142,7 +142,6 @@ namespace VoteService.Controllers
 
             foreach (var vote in allVotes)
             {
-                // Tìm xem optionId này đã có trong danh sách kết quả chưa
                 Dictionary<string, object> found = null;
                 foreach (var result in voteResultsList)
                 {
@@ -154,13 +153,11 @@ namespace VoteService.Controllers
                     }
                 }
 
-                // Nếu đã có, tăng voteCount
                 if (found != null)
                 {
                     int voteCount = (int)found["voteCount"];
                     found["voteCount"] = voteCount + 1;
                 }
-                // Nếu chưa có, thêm mới vào danh sách
                 else
                 {
                     var newResult = new Dictionary<string, object>
