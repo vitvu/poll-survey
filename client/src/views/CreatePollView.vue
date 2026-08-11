@@ -84,6 +84,7 @@
 
 <script>
 import { createPoll } from '../api'
+import { useToast } from 'vue-toastification'
 import { ChevronLeft, CheckCircle2, Plus, X, BarChart2, ToggleLeft, Star, MessageSquare } from '@lucide/vue'
 
 export default {
@@ -94,6 +95,7 @@ export default {
   data() {
     return {
       isLoading:  false,
+      toast: useToast(),
 
       form: {
         question:     '',
@@ -105,7 +107,7 @@ export default {
       questionTypes: [
         { value: 1, label: 'Multiple Choice', description: 'Choose one from many', icon: BarChart2 },
         { value: 2, label: 'Yes / No',        description: 'Only 2 options',       icon: ToggleLeft },
-        { value: 3, label: 'Star Rating',     description: 'Choose 1–5 stars',     icon: Star },
+        { value: 3, label: 'Star Rating',     description: 'Choose 1-5 stars',     icon: Star },
         { value: 4, label: 'Open Text',       description: 'Free text response',   icon: MessageSquare },
       ],
     }
@@ -136,11 +138,11 @@ export default {
 
     async submit() {
       if (!this.form.question.trim()) {
-        this.$toast.error('Please enter a question.')
+        this.toast.error('Please enter a question.')
         return
       }
       if (this.form.questionType === 1 && this.validOptionCount < 2) {
-        this.$toast.error('Need at least 2 valid options.')
+        this.toast.error('Need at least 2 valid options.')
         return
       }
 
@@ -161,8 +163,14 @@ export default {
         }
 
         const response = await createPoll(payload)
+        
         // Backend returns the poll object directly, wrapped in { poll } or as the root response
-        const createdPoll = response?.poll || response || {}
+        let createdPoll = {}
+        if (response && response.poll) {
+          createdPoll = response.poll
+        } else if (response) {
+          createdPoll = response
+        }
         
         if (!createdPoll.code) {
           throw new Error('Invalid poll response from server')
@@ -175,11 +183,11 @@ export default {
           localStorage.setItem('createdPolls', JSON.stringify(saved))
         }
 
-        this.$toast.success('Poll created!')
+        this.toast.success('Poll created!')
         this.$router.push({ name: 'Analytics', query: { code: createdPoll.code } })
 
       } catch (error) {
-        this.$toast.error(error.message || 'Failed to create poll.')
+        this.toast.error(error.message || 'Failed to create poll.')
       } finally {
         this.isLoading = false
       }

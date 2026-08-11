@@ -125,6 +125,7 @@
 import { getPollByCode, submitVote } from '../api'
 import { connectPollHub } from '../usePollHub'
 import { getVoterToken } from '../voterToken'
+import { useToast } from 'vue-toastification'
 import { CheckCircle2, Check, AlertCircle, Lock, Send, Star, ArrowLeft, SearchX } from '@lucide/vue'
 
 const QUESTION_TYPE_LABELS = { 1: 'Multiple Choice', 2: 'Yes / No', 3: 'Rating', 4: 'Open Text' }
@@ -145,6 +146,7 @@ export default {
       selectedOptionId: null,
       voteValue:        '',
       hubStop:          null,
+      toast: useToast(),
       yesNoOptions: [
         { label: 'Yes', value: '1' },
         { label: 'No',  value: '0' },
@@ -188,7 +190,7 @@ export default {
             this.poll.status = 0
           }
           if (!this.voteSubmitted && !this.alreadyVoted) {
-            this.$toast.warning('This poll has ended.')
+            this.toast.warning('This poll has ended.')
           }
           hub.stop()
         },
@@ -216,19 +218,19 @@ export default {
         })
         localStorage.setItem(`voted_${this.poll.code}`, 'true')
         this.voteSubmitted = true
-        this.$toast.success('Your vote has been recorded!')
+        this.toast.success('Your vote has been recorded!')
 
       } catch (error) {
         const message = error.message || ''
         if (message.includes('already')) {
           this.alreadyVoted = true
-          this.$toast.info('You have already voted in this poll.')
+          this.toast.info('You have already voted in this poll.')
         } else if (message.includes('closed')) {
           this.poll.status = 0
-          this.$toast.error('This poll has ended.')
+          this.toast.error('This poll has ended.')
         } else {
           this.hasError = true
-          this.$toast.error(message || 'Failed to submit vote. Please try again.')
+          this.toast.error(message || 'Failed to submit vote. Please try again.')
         }
       } finally {
         this.isSubmitting = false

@@ -11,30 +11,9 @@
       "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5001 } ]
     },
     {
-      "UpstreamPathTemplate": "/api/polls",
-      "UpstreamHttpMethod": [ "GET", "POST" ],
-      "DownstreamPathTemplate": "/api/Polls",
-      "DownstreamScheme": "https",
-      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5001 } ]
-    },
-    {
       "UpstreamPathTemplate": "/api/votes/{everything}",
       "UpstreamHttpMethod": [ "GET", "POST", "DELETE" ],
       "DownstreamPathTemplate": "/api/Votes/{everything}",
-      "DownstreamScheme": "https",
-      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5002 } ]
-    },
-    {
-      "UpstreamPathTemplate": "/api/votes",
-      "UpstreamHttpMethod": [ "GET", "POST", "DELETE" ],
-      "DownstreamPathTemplate": "/api/Votes",
-      "DownstreamScheme": "https",
-      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5002 } ]
-    },
-    {
-      "UpstreamPathTemplate": "/hubs/vote",
-      "UpstreamHttpMethod": [ "GET", "POST", "OPTIONS" ],
-      "DownstreamPathTemplate": "/hubs/vote",
       "DownstreamScheme": "https",
       "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5002 } ]
     }

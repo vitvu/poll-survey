@@ -61,7 +61,6 @@ export function connectPollHub(pollCode, callbacks) {
       }
     })
 
-    // Connection fully closed
     connection.onclose(function () {
       if (callbacks.onDisconnected) {
         callbacks.onDisconnected()

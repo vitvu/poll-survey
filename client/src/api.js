@@ -1,50 +1,93 @@
 import axios from 'axios'
 
-const API_GATEWAY_URL = process.env.VUE_APP_API_BASE_URL || 'http://localhost:5000'
+const SERVER_URL = process.env.VUE_APP_API_BASE_URL || 'http://localhost:5000'
+const VOTE_SERVICE_URL = process.env.VUE_APP_VOTE_SERVICE_URL || 'https://localhost:5002'
 
-const apiClient = axios.create({
-  baseURL: API_GATEWAY_URL,
-  headers: {
-    'Content-Type': 'application/json'
-  },
-  timeout: 10000  
-})
 
-export async function getPollByCode(pollCode) {
-  const response = await apiClient.get(`/api/polls/code/${pollCode}`)
-  return response.data
+export const getPollByCode = async (pollCode) => {
+  try {
+    const response = await axios.get(SERVER_URL + '/api/polls/code/' + pollCode)
+    return response.data
+  } catch (err) {
+    console.error(err)
+    return null
+  }
 }
 
-export async function createPoll(pollData) {
-  const response = await apiClient.post('/api/polls', pollData)
-  return response.data
+export const createPoll = async (pollData) => {
+  try {
+    const response = await axios.post(SERVER_URL + '/api/polls', pollData)
+    return response.data
+  } catch (err) {
+    console.error(err)
+    return null
+  }
 }
 
-export async function updatePoll(pollCode, pollData) {
-  const response = await apiClient.put(`/api/polls/code/${pollCode}`, pollData)
-  return response.data
+export const updatePoll = async (pollCode, pollData) => {
+  try {
+    const response = await axios.put(SERVER_URL + '/api/polls/code/' + pollCode, pollData)
+    return response.data
+  } catch (err) {
+    console.error(err)
+    return null
+  }
 }
 
-export async function deletePoll(pollCode) {
-  const response = await apiClient.delete(`/api/polls/code/${pollCode}`)
-  return response.data
+export const deletePoll = async (pollCode) => {
+  try {
+    const response = await axios.delete(SERVER_URL + '/api/polls/code/' + pollCode)
+    return response.data
+  } catch (err) {
+    console.error(err)
+    return null
+  }
 }
 
-export async function submitVote(voteData) {
-  const response = await apiClient.post('/api/votes', voteData)
-  return response.data
+
+export const submitVote = async (voteData) => {
+  try {
+    const response = await axios.post(SERVER_URL + '/api/votes', voteData)
+    return response.data
+  } catch (err) {
+    console.error(err)
+    return null
+  }
 }
 
-export async function getVoteData(pollCode) {
-  const response = await apiClient.get(`/api/votes/${pollCode}`)
-  return response.data
+export const getVoteData = async (pollCode) => {
+  try {
+    const response = await axios.get(SERVER_URL + '/api/votes/' + pollCode)
+    return response.data
+  } catch (err) {
+    console.error(err)
+    return null
+  }
 }
 
-export async function deleteVotes(pollCode) {
-  const response = await apiClient.delete('/api/votes', {
-    params: { pollCode }
-  })
-  return response.data
+export const deleteVotes = async (pollCode) => {
+  try {
+    const response = await axios.delete(SERVER_URL + '/api/votes', {
+      params: { pollCode }
+    })
+    return response.data
+  } catch (err) {
+    console.error(err)
+    return null
+  }
 }
 
-export default apiClient
+export const notifyPollClosed = async (pollCode) => {
+  try {
+    const broadcastUrl = VOTE_SERVICE_URL + '/api/Votes/broadcast-closed'
+
+    const response = await axios.post(broadcastUrl, {
+      pollCode: pollCode,
+    })
+
+    return response.data
+  } catch (err) {
+    console.error('Notify poll closed error:', err)
+    return null
+  }
+}

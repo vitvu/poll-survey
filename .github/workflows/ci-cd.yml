@@ -11,7 +11,6 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  # ===== BUILD AND DOCKER JOB =====
   build-docker:
     runs-on: ubuntu-latest
     permissions:
@@ -70,7 +69,6 @@ jobs:
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.service }}:buildcache
           cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.service }}:buildcache,mode=max
 
-  # ===== DEPLOYMENT JOB =====
   deploy:
     needs: build-docker
     runs-on: ubuntu-latest
@@ -84,17 +82,13 @@ jobs:
 
       - name: Deploy to production
         run: |
-          echo "🚀 Deployment to production started..."
+          echo "Deployment to production started..."
           echo "Branch: ${{ github.ref }}"
           echo "Commit: ${{ github.sha }}"
           
-          # TODO: Add your deployment commands here
-          # Example for VPS with Docker:
-          # ssh -i ${{ secrets.DEPLOY_KEY }} user@your-vps-ip "cd /app && docker-compose pull && docker-compose up -d"
-          
-          echo "✅ Deployment completed!"
+          echo "Deployment completed!"
 
       - name: Notify deployment
         if: success()
-        run: echo "✅ Build completed and deployment ready!"
+        run: echo "Build completed and deployment ready!"
 
